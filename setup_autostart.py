@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+import sys as _sys, os as _os
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(_sys.argv[0])))
 """开机自启管理：往「启动」文件夹写/删 VBS（不需要管理员权限）。
 
 用法:
@@ -17,7 +19,11 @@ VBS_PATH = os.path.join(STARTUP_DIR, "CampusLogin.vbs")
 
 
 def get_interpreters():
-    """返回 (pythonw, python)。优先用项目自带 .venv，其次 WorkBuddy 管理的 venv"""
+    """返回 (pythonw, python)。优先内置便携 runtime，其次项目 .venv，最后 WorkBuddy venv"""
+    runtime_pyw = os.path.join(BASE_DIR, "runtime", "pythonw.exe")
+    runtime_py = os.path.join(BASE_DIR, "runtime", "python.exe")
+    if os.path.exists(runtime_pyw):
+        return runtime_pyw, runtime_py
     venv_dir = os.path.join(BASE_DIR, ".venv")
     venv_pyw = os.path.join(venv_dir, "Scripts", "pythonw.exe")
     venv_py = os.path.join(venv_dir, "Scripts", "python.exe")

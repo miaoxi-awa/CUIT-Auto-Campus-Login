@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+import sys as _sys, os as _os
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(_sys.argv[0])))
 """侦查模式 v2：穿透 Shadow DOM，轮询等待 SPA 渲染，dump 输入框/按钮/文字，不提交。
 
 用法:

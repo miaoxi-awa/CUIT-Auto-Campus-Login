@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+import sys as _sys, os as _os
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(_sys.argv[0])))
 """调试：探测认证页 Shadow DOM 结构（open/closed、输入框藏在哪），不提交表单"""
 import json
 import time

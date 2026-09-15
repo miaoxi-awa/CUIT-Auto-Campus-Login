@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+import sys as _sys, os as _os
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(_sys.argv[0])))
 """校园网自动登录主程序（锐捷 SAM / Angular+Ionic 版）。
 
 用法:
