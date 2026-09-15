@@ -223,6 +223,10 @@ def do_logout(driver, cfg):
         write_result(False, "进入「我的设备」但没找到「下线」按钮")
         return False
     log("已点击「下线」")
+    # 先存档确认弹窗现场（万一确认失败，这就是证据）
+    time.sleep(1)
+    shot(driver, "before_confirm")
+    dump_page(driver, "before_confirm")
     confirm_logout_dialog(driver)
 
     # 验证真的下线了：确认弹窗没点中的话，网络其实还在线
@@ -267,8 +271,9 @@ def visible_text(driver):
 
 
 def confirm_logout_dialog(driver):
-    """下线确认弹窗兜底：原生 alert 或页面弹窗。
-    确认按钮文字不固定（确定/确认/确认下线/是...），按列表模糊匹配。"""
+    """下线确认弹窗：优先 Ant Design/nz-modal 主按钮，其次按文字匹配按钮元素。
+    教训：模糊匹配叶子文字会点中「确定要下线吗？」这类提示文字（点了个寂寞），
+    所以只对 button/a/btn 类元素做包含匹配，叶子元素仅限精确匹配。"""
     try:
         driver.switch_to.alert.accept()
         log("已确认下线（原生弹窗）")
@@ -276,25 +281,75 @@ def confirm_logout_dialog(driver):
     except Exception:
         pass
     time.sleep(1)
-    targets = ["确定", "确认", "确认下线", "确 定", "是", "OK", "Yes"]
-    hit = driver.execute_script(
-        r"var targets = arguments[0];"
-        r"function norm(s){return (s||'').replace(/\s+/g,'');}"
-        r"function walk(root){var els=root.querySelectorAll('*');"
-        r"for(var i=0;i<els.length;i++){var el=els[i];"
-        r"var t=norm(el.innerText||el.textContent||'');"
-        r"var leaf = el.children.length===0;"
-        r"var vis = el.offsetWidth||el.offsetHeight||el.getClientRects().length;"
-        r"if(leaf&&vis){"
-        r"  for(var j=0;j<targets.length;j++){"
-        r"    if(t===norm(targets[j])||(t.length<=12&&t.indexOf(targets[j])>-1)){el.click();return targets[j];}}"
-        r"  for(var j=0;j<targets.length;j++){"
-        r"    var p=el;while(p=p.parentElement){if(/btn|button/i.test(p.className||'')&&t===norm(targets[j])){el.click();return targets[j];}}}"
-        r"}"
-        r"if(el.shadowRoot){var r=walk(el.shadowRoot);if(r)return r;}}return null;}"
-        r"return walk(document);", targets)
+
+    js = r"""
+    var exact = ['确定', '确认', '确认下线', '是', 'OK', 'Yes'];
+    var contains = ['确认下线'];
+    function norm(s){return (s||'').replace(/\s+/g,'');}
+    function vis(el){return el.offsetWidth||el.offsetHeight||el.getClientRects().length;}
+    function tryClick(el){ el.click(); return norm(el.innerText||el.textContent||'ok'); }
+
+    // 1) Ant Design / nz-modal 弹窗里的主按钮（通常在 footer 最后一个）
+    var prim = document.querySelectorAll(
+      '.ant-modal-footer .ant-btn-primary, .ant-modal .ant-btn-primary, ' +
+      '.ant-modal-confirm-btns .ant-btn-primary, .modal .ant-btn-primary, .ant-btn-primary');
+    for (var i = prim.length - 1; i >= 0; i--) {
+      if (vis(prim[i])) return tryClick(prim[i]);
+    }
+    // 2) 任意可见 button/a/btn 元素：文字精确匹配
+    var els = document.querySelectorAll('button, a, [class*=btn], [class*=button]');
+    for (var i = 0; i < els.length; i++) {
+      var el = els[i];
+      if (!vis(el)) continue;
+      var t = norm(el.innerText || '');
+      for (var j = 0; j < exact.length; j++) {
+        if (t === exact[j]) return tryClick(el);
+      }
+    }
+    // 3) 按钮元素：文字包含匹配（仅限「确认下线」这类动作词）
+    for (var i = 0; i < els.length; i++) {
+      var el = els[i];
+      if (!vis(el)) continue;
+      var t = norm(el.innerText || '');
+      for (var j = 0; j < contains.length; j++) {
+        if (t.indexOf(contains[j]) > -1) return tryClick(el);
+      }
+    }
+    // 4) 穿透 Shadow DOM：叶子元素文字精确匹配（不做包含，防止点中提示文字）
+    function walk(root) {
+      var els = root.querySelectorAll('*');
+      for (var i = 0; i < els.length; i++) {
+        var el = els[i];
+        if (el.children.length === 0 && vis(el)) {
+          var t = norm(el.textContent || '');
+          for (var j = 0; j < exact.length; j++) {
+            if (t === exact[j]) return tryClick(el);
+          }
+        }
+        if (el.shadowRoot) { var r = walk(el.shadowRoot); if (r) return r; }
+      }
+      return null;
+    }
+    return walk(document);
+    """
+    hit = driver.execute_script(js)
+    if not hit:
+        # 弹窗可能渲染慢，重试两轮
+        for _ in range(2):
+            time.sleep(1.5)
+            hit = driver.execute_script(js)
+            if hit:
+                break
     if hit:
         log("已点击确认按钮（%s）" % hit)
+        # 若弹窗还在（点到了别处），再补一刀
+        time.sleep(1.5)
+        still = driver.execute_script(
+            "return !!(document.querySelector('.ant-modal, .ant-modal-wrap') && "
+            "document.querySelector('.ant-modal').offsetWidth);")
+        if still:
+            hit2 = driver.execute_script(js)
+            log("弹窗仍在，补点一次: %s" % hit2)
         return True
     log("没找到确认按钮，截图存档排查", "WARN")
     shot(driver, "confirm_not_found")
