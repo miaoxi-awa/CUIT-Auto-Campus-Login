@@ -167,26 +167,55 @@ def do_logout(driver, cfg):
             log("%s 在线时被重定向到 %s，换下一个候选地址" % (url, cur), "WARN")
             continue
         if click_text_iframes(driver, "我要下线") or click_text_contains(driver, "下线"):
-            # 下线可能弹确认框：优先浏览器原生 alert，再试页面内「确定」
-            try:
-                driver.switch_to.alert.accept()
-                log("已确认下线（原生弹窗）")
-            except Exception:
-                time.sleep(1)
-                try:
-                    if click_text_iframes(driver, "确定"):
-                        log("已确认下线（页面弹窗）")
-                except Exception:
-                    pass
+            confirm_logout_dialog(driver)
             log("已点击「我要下线」(%s)" % url)
             return True
         log("%s 上没找到「我要下线」按钮" % url, "WARN")
 
-    log("所有候选地址都没找到「我要下线」按钮（当前可能本来就不在线）", "ERROR")
-    shot(driver, "no_logout_btn")
-    dump_page(driver, "no_logout_btn")
-    write_result(False, "没找到「我要下线」按钮，未断网（可能本来就不在线）")
+    log("所有候选地址都没找到「我要下线」按钮", "WARN")
     return False
+
+
+def confirm_logout_dialog(driver):
+    """下线确认弹窗兜底：先试原生 alert，再试页面内「确定」"""
+    try:
+        driver.switch_to.alert.accept()
+        log("已确认下线（原生弹窗）")
+        return
+    except Exception:
+        pass
+    time.sleep(1)
+    try:
+        if click_text_iframes(driver, "确定"):
+            log("已确认下线（页面弹窗）")
+    except Exception:
+        pass
+
+
+def logout_via_my_device(driver, cfg, interactive):
+    """备用下线方案：找不到「我要下线」时，重新登录 → 点「我的设备」→ 点「下线」"""
+    log("改走备用方案：重新登录 → 「我的设备」→ 「下线」")
+    if not do_login(driver, cfg, interactive=interactive):
+        write_result(False, "备用方案：登录未成功，无法从「我的设备」下线")
+        return False
+    time.sleep(2)
+    if not click_text_iframes(driver, "我的设备"):
+        log("登录后没找到「我的设备」", "ERROR")
+        shot(driver, "no_mydevice")
+        dump_page(driver, "no_mydevice")
+        write_result(False, "登录成功但没找到「我的设备」入口")
+        return False
+    log("已点击「我的设备」")
+    time.sleep(3)
+    if not click_text_iframes(driver, "下线"):
+        log("没找到「下线」按钮", "ERROR")
+        shot(driver, "no_logout_btn2")
+        dump_page(driver, "no_logout_btn2")
+        write_result(False, "进入「我的设备」但没找到「下线」按钮")
+        return False
+    log("已点击「下线」")
+    confirm_logout_dialog(driver)
+    return True
 
 
 def creds_missing(cfg):
@@ -579,17 +608,32 @@ def main():
     # --visible 强制显示窗口；否则按 config.ini 的 headless（默认 false → 有头窗口）
     headless = (not args.visible) and cfg["headless"]
 
-    # 仅下线模式：点了「我要下线」、等 10 秒、收工，不登录
+    # 仅下线模式：优先点「我要下线」；找不到就重新登录，走「我的设备」→「下线」
     if args.logout_only:
         driver = None
         try:
             driver = make_driver(headless=headless)
             log("=" * 60)
             log("仅下线模式启动")
+            ok = False
             if do_logout(driver, cfg):
+                ok = True
+                how = "已点击「我要下线」"
+            else:
+                # 备用方案需要账号密码：缺就现场引导输入
+                if creds_missing(cfg):
+                    if args.boot:
+                        log("未配置账号密码，开机自启无法走备用下线方案", "ERROR")
+                        write_result(False, "未配置账号密码，备用下线方案无法执行")
+                        sys.exit(2)
+                    cfg = prompt_credentials(cfg)
+                if logout_via_my_device(driver, cfg, interactive=not args.boot):
+                    ok = True
+                    how = "经「我的设备」→「下线」"
+            if ok:
                 log("等待 10 秒让下线生效...")
                 time.sleep(10)
-                write_result(True, "已点击「我要下线」并等待 10 秒，未重连")
+                write_result(True, "%s，已等待 10 秒，未重连" % how)
                 log("下线完成")
                 code = 0
             else:
