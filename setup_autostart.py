@@ -43,16 +43,15 @@ def install():
     pyw, py = get_interpreters()
     frozen = getattr(sys, "frozen", False)
     if frozen:
-        # exe 模式：启动的就是 GUI 自己，--boot 走静默登录
+        # exe 模式：启动的就是 GUI 自己，--boot 走静默登录（exe 只传一次，别把自己当参数传）
         script = py
-        run_args = ' --boot'
+        run_line = 'sh.Run """" & pyw & """ --boot", 0, False'
     else:
         script = os.path.join(BASE_DIR, "main.py")
         if not os.path.exists(script):
             log("找不到 main.py: %s" % script, "ERROR")
             return 1
-        run_args = ""
-    # 注意：第三个参数必须是脚本路径，不能误传 python.exe
+        run_line = 'sh.Run """" & pyw & """ """ & py & """", 0, False'
     lines = [
         "Option Explicit",
         "Dim fso, sh, baseDir, pyw, py",
@@ -63,19 +62,20 @@ def install():
         'py = "%s"' % script,
         "If Not fso.FileExists(pyw) Or Not fso.FileExists(py) Then WScript.Quit 1",
         "sh.CurrentDirectory = baseDir",
-        'sh.Run """" & pyw & """ """ & py & """%s", 0, False' % run_args,
+        run_line,
     ]
     # 必须 UTF-16LE+BOM（Python 的 utf-16 带 BOM），否则中文路径乱码、静默失败
     with open(VBS_PATH, "w", encoding="utf-16") as f:
         f.write("\r\n".join(lines) + "\r\n")
-    # 读回来核对：Run 行必须是 pythonw + 启动目标的组合，防止静默失败
+    # 读回来核对：exe 模式校验自身路径 + --boot 启动行；脚本模式校验 pythonw
     with open(VBS_PATH, "r", encoding="utf-16") as f:
         content = f.read()
-    if ('py = "%s"' % script) not in content or "pythonw" not in content:
+    ok = ('pyw = "%s"' % pyw) in content and run_line in content
+    if not ok:
         log("VBS 内容异常，请检查", "ERROR")
         return 1
     log("已安装开机自启: %s" % VBS_PATH)
-    log("使用解释器: %s" % pyw)
+    log("启动目标: %s" % pyw)
     return 0
 
 

@@ -43,6 +43,7 @@ class App:
         self.root = root
         self.q = queue.Queue()
         self.busy = False
+        self.boot_retries = 2  # 开机时网络可能未就绪，静默登录失败自动重试
 
         root.title("校园网自动登录 · py: %s" % AUTHOR)
         root.geometry("600x500")
@@ -216,11 +217,20 @@ class App:
                     self.op_box.config(state="readonly")
                     self.b_auto.config(text=self.autostart_label())
                     ok = code in ("0", "None", "")
-                    self.status.config(
-                        text="状态：完成（%s）" % ("成功" if ok else "失败，详见日志/RESULT.txt"),
-                        foreground="#1a7f37" if ok else "#c62828")
-                    if BOOT:
-                        self.root.after(400, self.root.destroy)
+                    if BOOT and not ok and self.boot_retries > 0:
+                        # 开机自启失败：等 15 秒（多半是网络没就绪）自动重试
+                        self.boot_retries -= 1
+                        self.status.config(
+                            text="状态：开机登录未成功，15 秒后自动重试...",
+                            foreground="#b26a00")
+                        self.root.after(15000, lambda: self.run_flow(
+                            ["--once", "--silent", "--boot"], "开机自动登录(重试)"))
+                    else:
+                        self.status.config(
+                            text="状态：完成（%s）" % ("成功" if ok else "失败，详见日志/RESULT.txt"),
+                            foreground="#1a7f37" if ok else "#c62828")
+                        if BOOT:
+                            self.root.after(400, self.root.destroy)
                 else:
                     self.log_line(item)
         except queue.Empty:
