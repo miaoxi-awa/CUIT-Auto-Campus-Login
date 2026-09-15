@@ -21,7 +21,7 @@ import sys
 import time
 from datetime import datetime
 
-from common import LOG_DIR, load_config, save_account, save_service, log, make_driver, shot, dump_page
+from common import LOG_DIR, clear_account, load_config, save_account, save_service, log, make_driver, shot, dump_page
 
 FAIL_KEYWORDS = ["密码错误", "口令错误", "账号不存在", "用户不存在", "已锁定",
                  "认证失败", "locked", "incorrect", "不正确", "不存在"]
@@ -529,7 +529,23 @@ def main():
     ap.add_argument("--visible", action="store_true", help="显示浏览器窗口")
     ap.add_argument("--offline", action="store_true", help="先点「我要下线」断网，等 10 秒再登录")
     ap.add_argument("--logout-only", action="store_true", help="仅断开校园网（点「我要下线」+等 10 秒），不重新登录")
+    ap.add_argument("--clear-creds", action="store_true", help="一键清除本地保存的账号密码")
     args = ap.parse_args()
+
+    # 一键清除账号密码：不需要打开浏览器，确认后清空并退出
+    if args.clear_creds:
+        print("=" * 46)
+        print("  将清除本地 config.ini 中保存的账号密码")
+        print("  （清除后下次登录会重新引导输入）")
+        print("=" * 46)
+        ans = input("确认清除？(y/n): ").strip().lower()
+        if ans in ("y", "yes"):
+            clear_account()
+            print("已清除账号密码。")
+            log("用户已清除本地账号密码")
+        else:
+            print("已取消。")
+        return
 
     cfg = load_config()
 

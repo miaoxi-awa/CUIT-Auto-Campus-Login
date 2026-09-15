@@ -71,6 +71,12 @@ def save_account(username, password):
     _set_config("account", "password", password)
 
 
+def clear_account():
+    """一键清除账号密码（还原为占位符，下次运行会重新引导输入）"""
+    _set_config("account", "username", "你的学号")
+    _set_config("account", "password", "你的密码")
+
+
 def _set_config(section, key, value):
     cfg = configparser.ConfigParser()
     cfg.read(CONFIG_PATH, encoding="utf-8")
