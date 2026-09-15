@@ -652,6 +652,8 @@ def handle_service_dialog(driver, cfg, interactive):
     if not click_text_deep(driver, choice):
         log("点击运营商选项失败: %s" % choice, "ERROR")
         shot(driver, "service_click_fail")
+    else:
+        log("已点击运营商选项: %s" % choice)
     time.sleep(1)
     if click_text_deep(driver, "确定"):
         log("已点击确定")

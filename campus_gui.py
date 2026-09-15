@@ -45,8 +45,8 @@ class App:
         self.busy = False
 
         root.title("校园网自动登录 · py: %s" % AUTHOR)
-        root.geometry("600x470")
-        root.minsize(520, 400)
+        root.geometry("600x500")
+        root.minsize(520, 430)
 
         head = ttk.Frame(root, padding=(12, 10, 12, 0))
         head.pack(fill="x")
@@ -79,6 +79,19 @@ class App:
         self.b_clear.pack(side="left", padx=8)
         self.b_auto.pack(side="left", padx=8)
         self.b_logs.pack(side="left", padx=8)
+
+        # 运营商选择：登录后弹窗会按这里的配置自动选
+        bar_op = ttk.Frame(root, padding=(12, 2, 12, 2))
+        bar_op.pack(fill="x")
+        ttk.Label(bar_op, text="运营商：").pack(side="left")
+        self.op_var = tk.StringVar()
+        self.op_box = ttk.Combobox(bar_op, textvariable=self.op_var, width=10,
+                                   values=("电信", "移动", "联通"), state="readonly")
+        cur = (common.load_config().get("service") or "").strip()
+        self.op_var.set(cur if cur in ("电信", "移动", "联通") else "")
+        self.op_box.pack(side="left", padx=(0, 8))
+        ttk.Label(bar_op, text="（登录时会按此选择自动确认）", foreground="#888").pack(side="left")
+        self.op_box.bind("<<ComboboxSelected>>", self.on_operator_change)
 
         self.all_buttons = [self.b_login, self.b_logout, self.b_relogin,
                             self.b_account, self.b_clear, self.b_auto, self.b_logs]
@@ -136,6 +149,20 @@ class App:
             common.clear_account()
             self.log_line("已清除账号密码。")
 
+    # ---------- 运营商 ----------
+    def on_operator_change(self, _event=None):
+        val = self.op_var.get().strip()
+        if val:
+            common.save_service(val)
+            self.log_line("运营商已设为「%s」，下次登录自动选择" % val)
+
+    def ensure_operator(self):
+        """登录类操作前确保已选运营商，避免 GUI 模式下无法交互选择"""
+        if self.op_var.get().strip():
+            return True
+        messagebox.showwarning("请选择运营商", "先在「运营商」下拉框选择你的运营商，再登录。")
+        return False
+
     # ---------- 开机自启 ----------
     def toggle_autostart(self):
         import setup_autostart as sa
@@ -152,9 +179,12 @@ class App:
             return
         if not self.ensure_account():
             return
+        if "--once" in args and not self.ensure_operator():
+            return
         self.busy = True
         for b in self.all_buttons:
             b.config(state="disabled")
+        self.op_box.config(state="disabled")
         self.status.config(text="状态：%s..." % title, foreground="#b26a00")
 
         def worker():
@@ -183,6 +213,7 @@ class App:
                     self.busy = False
                     for b in self.all_buttons:
                         b.config(state="normal")
+                    self.op_box.config(state="readonly")
                     self.b_auto.config(text=self.autostart_label())
                     ok = code in ("0", "None", "")
                     self.status.config(
