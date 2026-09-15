@@ -224,6 +224,16 @@ def do_logout(driver, cfg):
         return False
     log("已点击「下线」")
     confirm_logout_dialog(driver)
+
+    # 验证真的下线了：确认弹窗没点中的话，网络其实还在线
+    time.sleep(3)
+    if already_online(driver):
+        log("点击下线后外网探测仍在线 —— 确认弹窗可能没点中", "ERROR")
+        shot(driver, "still_online")
+        dump_page(driver, "still_online")
+        write_result(False, "点击下线后网络仍在线，确认弹窗可能未生效（详见截图）")
+        return False
+    log("外网探测确认已下线")
     return True
 
 
@@ -257,19 +267,39 @@ def visible_text(driver):
 
 
 def confirm_logout_dialog(driver):
-    """下线确认弹窗兜底：先试原生 alert，再试页面内「确定」"""
+    """下线确认弹窗兜底：原生 alert 或页面弹窗。
+    确认按钮文字不固定（确定/确认/确认下线/是...），按列表模糊匹配。"""
     try:
         driver.switch_to.alert.accept()
         log("已确认下线（原生弹窗）")
-        return
+        return True
     except Exception:
         pass
     time.sleep(1)
-    try:
-        if click_text_iframes(driver, "确定"):
-            log("已确认下线（页面弹窗）")
-    except Exception:
-        pass
+    targets = ["确定", "确认", "确认下线", "确 定", "是", "OK", "Yes"]
+    hit = driver.execute_script(
+        r"var targets = arguments[0];"
+        r"function norm(s){return (s||'').replace(/\s+/g,'');}"
+        r"function walk(root){var els=root.querySelectorAll('*');"
+        r"for(var i=0;i<els.length;i++){var el=els[i];"
+        r"var t=norm(el.innerText||el.textContent||'');"
+        r"var leaf = el.children.length===0;"
+        r"var vis = el.offsetWidth||el.offsetHeight||el.getClientRects().length;"
+        r"if(leaf&&vis){"
+        r"  for(var j=0;j<targets.length;j++){"
+        r"    if(t===norm(targets[j])||(t.length<=12&&t.indexOf(targets[j])>-1)){el.click();return targets[j];}}"
+        r"  for(var j=0;j<targets.length;j++){"
+        r"    var p=el;while(p=p.parentElement){if(/btn|button/i.test(p.className||'')&&t===norm(targets[j])){el.click();return targets[j];}}}"
+        r"}"
+        r"if(el.shadowRoot){var r=walk(el.shadowRoot);if(r)return r;}}return null;}"
+        r"return walk(document);", targets)
+    if hit:
+        log("已点击确认按钮（%s）" % hit)
+        return True
+    log("没找到确认按钮，截图存档排查", "WARN")
+    shot(driver, "confirm_not_found")
+    dump_page(driver, "confirm_not_found")
+    return False
 
 
 def creds_missing(cfg):
