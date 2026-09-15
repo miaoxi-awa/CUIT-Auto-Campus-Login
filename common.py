@@ -65,6 +65,12 @@ def save_service(name):
     _set_config("portal", "service", name)
 
 
+def save_account(username, password):
+    """首次运行时把控制台输入的账号密码写回 config.ini"""
+    _set_config("account", "username", username)
+    _set_config("account", "password", password)
+
+
 def _set_config(section, key, value):
     cfg = configparser.ConfigParser()
     cfg.read(CONFIG_PATH, encoding="utf-8")

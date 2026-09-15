@@ -21,7 +21,7 @@ import sys
 import time
 from datetime import datetime
 
-from common import LOG_DIR, load_config, save_service, log, make_driver, shot, dump_page
+from common import LOG_DIR, load_config, save_account, save_service, log, make_driver, shot, dump_page
 
 FAIL_KEYWORDS = ["密码错误", "口令错误", "账号不存在", "用户不存在", "已锁定",
                  "认证失败", "locked", "incorrect", "不正确", "不存在"]
@@ -180,6 +180,34 @@ def do_logout(driver, cfg):
     dump_page(driver, "no_logout_btn")
     write_result(False, "没找到「我要下线」按钮，未断网（可能本来就不在线）")
     return False
+
+
+def creds_missing(cfg):
+    """判断账号密码是否还是模板占位/为空（首次运行）"""
+    return (not cfg["username"] or cfg["username"] == "你的学号"
+            or not cfg["password"] or cfg["password"] == "你的密码")
+
+
+def prompt_credentials(cfg):
+    """首次运行引导：控制台输入账号密码并存入本地 config.ini"""
+    print("=" * 52)
+    print("  首次使用，请配置校园网账号")
+    print("  （此数据保存在本地，项目开源，不用担心）")
+    print("=" * 52)
+    username = ""
+    while not username.strip():
+        username = input("请输入校园网账号（学号/工号）: ").strip()
+    import getpass
+    while True:
+        password = getpass.getpass("请输入校园网密码（输入不回显）: ")
+        if password:
+            break
+        print("密码不能为空，请重新输入")
+    save_account(username, password)
+    log("账号密码已保存到本地 config.ini")
+    print("已保存到本地 config.ini，下次无需再输入\n")
+    cfg["username"], cfg["password"] = username, password
+    return cfg
 
 
 def write_result(ok, detail):
@@ -504,6 +532,15 @@ def main():
     args = ap.parse_args()
 
     cfg = load_config()
+
+    # 仅下线不需要账号密码，其余模式先确保凭据已配置
+    if not args.logout_only:
+        if creds_missing(cfg):
+            if args.boot:
+                log("config.ini 未配置账号密码，开机自启无法登录", "ERROR")
+                write_result(False, "未配置账号密码，请先手动运行一次完成首次配置")
+                sys.exit(2)
+            cfg = prompt_credentials(cfg)
     if not cfg["url"]:
         # 没填认证页地址，先探测一次并写回
         from inspect_page import find_portal
