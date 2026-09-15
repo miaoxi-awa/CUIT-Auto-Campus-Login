@@ -11,3 +11,10 @@ __pycache__/
 # 便携 Python（太大且随 zip 分发，不入库）
 runtime/
 *.zip
+
+# 打包产物与构建环境
+build/
+dist/
+.build-venv/
+*.spec
+gui_preview.png

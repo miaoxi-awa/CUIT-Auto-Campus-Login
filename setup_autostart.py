@@ -19,7 +19,9 @@ VBS_PATH = os.path.join(STARTUP_DIR, "CampusLogin.vbs")
 
 
 def get_interpreters():
-    """返回 (pythonw, python)。优先内置便携 runtime，其次项目 .venv，最后 WorkBuddy venv"""
+    """返回 (pythonw, python)。exe 打包后就是它自己；否则优先内置 runtime"""
+    if getattr(sys, "frozen", False):
+        return sys.executable, sys.executable
     runtime_pyw = os.path.join(BASE_DIR, "runtime", "pythonw.exe")
     runtime_py = os.path.join(BASE_DIR, "runtime", "python.exe")
     if os.path.exists(runtime_pyw):
@@ -39,10 +41,17 @@ def get_interpreters():
 
 def install():
     pyw, py = get_interpreters()
-    script = os.path.join(BASE_DIR, "main.py")
-    if not os.path.exists(script):
-        log("找不到 main.py: %s" % script, "ERROR")
-        return 1
+    frozen = getattr(sys, "frozen", False)
+    if frozen:
+        # exe 模式：启动的就是 GUI 自己，--boot 走静默登录
+        script = py
+        run_args = ' --boot'
+    else:
+        script = os.path.join(BASE_DIR, "main.py")
+        if not os.path.exists(script):
+            log("找不到 main.py: %s" % script, "ERROR")
+            return 1
+        run_args = ""
     # 注意：第三个参数必须是脚本路径，不能误传 python.exe
     lines = [
         "Option Explicit",
@@ -54,12 +63,12 @@ def install():
         'py = "%s"' % script,
         "If Not fso.FileExists(pyw) Or Not fso.FileExists(py) Then WScript.Quit 1",
         "sh.CurrentDirectory = baseDir",
-        'sh.Run """" & pyw & """ """ & py & """ --boot", 0, False',
+        'sh.Run """" & pyw & """ """ & py & """%s", 0, False' % run_args,
     ]
     # 必须 UTF-16LE+BOM（Python 的 utf-16 带 BOM），否则中文路径乱码、静默失败
     with open(VBS_PATH, "w", encoding="utf-16") as f:
         f.write("\r\n".join(lines) + "\r\n")
-    # 读回来核对：Run 行必须是 pythonw + main.py 的组合，防止静默失败
+    # 读回来核对：Run 行必须是 pythonw + 启动目标的组合，防止静默失败
     with open(VBS_PATH, "r", encoding="utf-16") as f:
         content = f.read()
     if ('py = "%s"' % script) not in content or "pythonw" not in content:

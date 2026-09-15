@@ -20,6 +20,13 @@ CONFIG_PATH = os.path.join(BASE_DIR, "config.ini")
 # 署名
 AUTHOR = "miaoxiawa"
 
+# 打包成 exe 后，__file__ 指向临时解压目录，配置必须跟着 exe 走
+if getattr(sys, "frozen", False):
+    BASE_DIR = os.path.dirname(os.path.abspath(sys.executable))
+    LOG_DIR = os.path.join(BASE_DIR, "logs")
+    os.makedirs(LOG_DIR, exist_ok=True)
+    CONFIG_PATH = os.path.join(BASE_DIR, "config.ini")
+
 _log_file = None
 
 

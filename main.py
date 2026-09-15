@@ -732,6 +732,7 @@ def main():
     ap.add_argument("--once", action="store_true", help="登录一次")
     ap.add_argument("--boot", action="store_true", help="开机自启模式（静默）")
     ap.add_argument("--visible", action="store_true", help="显示浏览器窗口")
+    ap.add_argument("--silent", action="store_true", help="强制静默（不显示浏览器窗口），GUI 用")
     ap.add_argument("--offline", action="store_true", help="先点「我要下线」断网，等 10 秒再登录")
     ap.add_argument("--logout-only", action="store_true", help="仅断开校园网（点「我要下线」+等 10 秒），不重新登录")
     ap.add_argument("--clear-creds", action="store_true", help="一键清除本地保存的账号密码")
@@ -774,7 +775,7 @@ def main():
             driver.quit()
 
     # --visible 强制显示窗口；否则按 config.ini 的 headless（默认 false → 有头窗口）
-    headless = (not args.visible) and cfg["headless"]
+    headless = args.silent or ((not args.visible) and cfg["headless"])
 
     # 仅下线模式：优先点「我要下线」；找不到就重新登录，走「我的设备」→「下线」
     if args.logout_only:
