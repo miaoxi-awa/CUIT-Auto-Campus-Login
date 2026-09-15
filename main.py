@@ -197,9 +197,9 @@ def prompt_credentials(cfg):
     username = ""
     while not username.strip():
         username = input("请输入校园网账号（学号/工号）: ").strip()
-    import getpass
+    # 用户要求密码明文输入（不回显的话没法确认自己打对了没有）
     while True:
-        password = getpass.getpass("请输入校园网密码（输入不回显）: ")
+        password = input("请输入校园网密码: ")
         if password:
             break
         print("密码不能为空，请重新输入")
