@@ -17,6 +17,9 @@ os.makedirs(LOG_DIR, exist_ok=True)
 
 CONFIG_PATH = os.path.join(BASE_DIR, "config.ini")
 
+# 署名
+AUTHOR = "miaoxiawa"
+
 _log_file = None
 
 

@@ -21,7 +21,14 @@ import sys
 import time
 from datetime import datetime
 
-from common import LOG_DIR, clear_account, load_config, save_account, save_service, log, make_driver, shot, dump_page
+from common import AUTHOR, LOG_DIR, clear_account, load_config, save_account, save_service, log, make_driver, shot, dump_page
+
+
+def show_banner():
+    """启动署名横幅"""
+    print("=" * 52)
+    print("       校园网自动登录   py: %s" % AUTHOR)
+    print("=" * 52)
 
 FAIL_KEYWORDS = ["密码错误", "口令错误", "账号不存在", "用户不存在", "已锁定",
                  "认证失败", "locked", "incorrect", "不正确", "不存在"]
@@ -193,6 +200,7 @@ def prompt_credentials(cfg):
     print("=" * 52)
     print("  首次使用，请配置校园网账号")
     print("  （此数据保存在本地，项目开源，不用担心）")
+    print("  py: %s" % AUTHOR)
     print("=" * 52)
     username = ""
     while not username.strip():
@@ -531,6 +539,8 @@ def main():
     ap.add_argument("--logout-only", action="store_true", help="仅断开校园网（点「我要下线」+等 10 秒），不重新登录")
     ap.add_argument("--clear-creds", action="store_true", help="一键清除本地保存的账号密码")
     args = ap.parse_args()
+
+    show_banner()
 
     # 一键清除账号密码：不需要打开浏览器，确认后清空并退出
     if args.clear_creds:

@@ -1,5 +1,7 @@
 # campus-login — 校园网自动登录（Selenium + Edge）
 
+> py: miaoxiawa
+
 针对锐捷 SAM 门户（Angular + Ionic，表单藏在 iframe + Shadow DOM 里）的 Python 自动登录脚本，
 在 Windows 11 + Edge 环境实测通过。
 
