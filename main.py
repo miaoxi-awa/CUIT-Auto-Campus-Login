@@ -19,9 +19,47 @@ import argparse
 import os
 import sys
 import time
+import threading
 from datetime import datetime
 
 from common import AUTHOR, LOG_DIR, clear_account, load_config, save_account, save_service, log, make_driver, shot, dump_page
+
+
+class BrowserClosed(Exception):
+    """用户手动关闭了浏览器窗口，任务应立即结束"""
+
+
+# ---------- 浏览器看门狗 ----------
+_browser_closed = threading.Event()
+_wd_stop = threading.Event()
+
+
+def start_watchdog(driver):
+    """每 2 秒探测一次浏览器是否存活，用户关闭窗口则置位 _browser_closed"""
+    _browser_closed.clear()
+    _wd_stop.clear()
+
+    def watch():
+        while not _wd_stop.wait(2):
+            try:
+                _ = driver.current_url  # 轻量探测，窗口关闭会抛异常
+            except Exception:
+                if not _wd_stop.is_set():
+                    _browser_closed.set()
+                    log("检测到浏览器窗口已关闭，正在结束当前任务...", "WARN")
+                return
+
+    threading.Thread(target=watch, daemon=True).start()
+
+
+def stop_watchdog():
+    _wd_stop.set()
+
+
+def check_browser():
+    """在各等待循环中调用：浏览器已关闭则抛 BrowserClosed 终止任务"""
+    if _browser_closed.is_set():
+        raise BrowserClosed()
 
 
 def show_banner():
@@ -162,6 +200,7 @@ def do_logout(driver, cfg):
         if "我的设备" in visible_text(driver):
             already_logged = True
             break
+        check_browser()
         time.sleep(0.3)
 
     if found:
@@ -210,6 +249,7 @@ def do_logout(driver, cfg):
                     dump_page(driver, "self_login_fail")
                     write_result(False, "自助服务登录失败：「%s」，勿反复重试" % kw)
                     sys.exit(2)
+            check_browser()
             time.sleep(0.3)
         if not logged_in:
             log("等待自助服务登录完成超时", "WARN")  # 不直接判死，继续试找「我的设备」
@@ -227,6 +267,7 @@ def do_logout(driver, cfg):
             confirm_logout_dialog(driver)
             log("已直接点击下线按钮（无需进入我的设备）")
             return True
+        check_browser()
         time.sleep(0.3)
     if not clicked_dev:
         log("自助中心没找到「我的设备」入口", "ERROR")
@@ -241,6 +282,7 @@ def do_logout(driver, cfg):
     while time.time() < deadline:
         if "下线" in visible_text(driver):
             break
+        check_browser()
         time.sleep(0.3)
 
     if not click_text_iframes(driver, "下线"):
@@ -474,6 +516,7 @@ def wait_form(driver, timeout=25):
                         continue
         except Exception:
             pass
+        check_browser()
         time.sleep(0.3)
     return None, switched
 
@@ -519,6 +562,7 @@ def post_login_wait(driver, timeout=20):
         for kw in SUCCESS_KEYWORDS:
             if kw in src:
                 return ("success", kw)
+        check_browser()
         time.sleep(0.3)
     return ("timeout", "")
 
@@ -539,6 +583,7 @@ def wait_service_options(driver, timeout=10):
                 return opts
         except Exception:
             pass
+        check_browser()
         time.sleep(0.3)
     return []
 
@@ -619,6 +664,7 @@ def handle_service_dialog(driver, cfg, interactive):
     while time.time() < deadline:
         if "请选择服务" not in visible_text(driver):
             break
+        check_browser()
         time.sleep(0.3)
     return True
 
@@ -690,6 +736,7 @@ def do_login(driver, cfg, interactive=True):
     except Exception:
         driver.execute_script("arguments[0].click()", btn)  # 兜底：JS click
     log("已点击登录按钮")
+    check_browser()
     time.sleep(1)
     try:  # 服务弹窗在主文档，先切回去
         driver.switch_to.default_content()
@@ -782,6 +829,7 @@ def main():
         driver = None
         try:
             driver = make_driver(headless=headless)
+            start_watchdog(driver)
             log("=" * 60)
             log("仅下线模式启动（自助服务中心）")
             # 自助服务要用账号密码登录，缺就现场引导输入
@@ -798,6 +846,7 @@ def main():
             if ok:
                 log("等待 10 秒让下线生效...")
                 time.sleep(10)
+                check_browser()
                 write_result(True, "%s，已等待 10 秒，未重连" % how)
                 log("下线完成")
                 code = 0
@@ -806,6 +855,10 @@ def main():
             sys.exit(code)
         except SystemExit:
             raise
+        except BrowserClosed:
+            log("浏览器窗口已关闭，结束当前下线任务")
+            write_result(False, "浏览器窗口被手动关闭，下线任务已结束")
+            sys.exit(0)
         except Exception as e:
             log("下线流程出错: %s" % e, "ERROR")
             if driver:
@@ -813,6 +866,7 @@ def main():
             write_result(False, "下线流程异常: %s" % e)
             sys.exit(1)
         finally:
+            stop_watchdog()
             if driver:
                 driver.quit()
                 log("浏览器已关闭")
@@ -822,12 +876,14 @@ def main():
     driver = None
     try:
         driver = make_driver(headless=headless)
+        start_watchdog(driver)
         if args.offline:
             # 断线重连：先下线，等 10 秒，再走完整登录流程
             if not do_logout(driver, cfg):
                 sys.exit(1)
             log("等待 10 秒让下线生效...")
             time.sleep(10)
+            check_browser()
         log("开始登录 %s" % cfg["url"])
         if do_login(driver, cfg, interactive=not args.boot):
             log("登录完成")
@@ -836,6 +892,10 @@ def main():
             sys.exit(1)
     except SystemExit:
         raise
+    except BrowserClosed:
+        log("浏览器窗口已关闭，结束当前登录任务")
+        write_result(False, "浏览器窗口被手动关闭，登录任务已结束")
+        sys.exit(0)
     except Exception as e:
         log("登录流程出错: %s" % e, "ERROR")
         if driver:
@@ -844,6 +904,7 @@ def main():
         write_result(False, "脚本异常: %s" % e)
         sys.exit(1)
     finally:
+        stop_watchdog()
         if driver:
             driver.quit()
             log("浏览器已关闭")
