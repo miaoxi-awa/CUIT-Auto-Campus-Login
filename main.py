@@ -146,16 +146,31 @@ def do_logout(driver, cfg):
     """
     log("打开自助服务中心: %s" % SELF_URL)
     driver.get(SELF_URL)
-    time.sleep(5)
 
-    # 有登录表单就先登录；已经是登录态就直接找「我的设备」
-    found, _ = wait_form(driver, 15)
-    if found and found.get("user") and found.get("pass"):
+    # 轮询等页面就绪：要么出现登录表单，要么已经是登录态（有「我的设备」）
+    deadline = time.time() + 12
+    found = None
+    already_logged = False
+    while time.time() < deadline:
+        try:
+            f = driver.execute_script(DEEP_FIND_INPUTS)
+        except Exception:
+            f = None
+        if f and f.get("user") and f.get("pass"):
+            found = f
+            break
+        if "我的设备" in visible_text(driver):
+            already_logged = True
+            break
+        time.sleep(0.3)
+
+    if found:
         log("自助服务需要登录，填写账号密码...")
-        found["user"].clear()
-        found["user"].send_keys(cfg["username"])
-        found["pass"].clear()
-        found["pass"].send_keys(cfg["password"])
+        user_el, pass_el = found["user"], found["pass"]
+        user_el.clear()
+        user_el.send_keys(cfg["username"])
+        pass_el.clear()
+        pass_el.send_keys(cfg["password"])
         try:  # 协议/记住我勾选框，有就勾上
             if driver.execute_script(DEEP_ENSURE_AGREE):
                 driver.execute_script(
@@ -195,26 +210,38 @@ def do_logout(driver, cfg):
                     dump_page(driver, "self_login_fail")
                     write_result(False, "自助服务登录失败：「%s」，勿反复重试" % kw)
                     sys.exit(2)
-            time.sleep(1)
+            time.sleep(0.3)
         if not logged_in:
             log("等待自助服务登录完成超时", "WARN")  # 不直接判死，继续试找「我的设备」
     else:
         log("自助服务无需登录（已是登录态）")
 
-    time.sleep(2)
-    # 点「我的设备」；个别版本登录后页面直接有下线按钮，一并兜底
-    if not click_text_iframes(driver, "我的设备"):
+    # 点「我的设备」（带轮询重试，最多 8 秒）；个别版本登录后直接有下线按钮，一并兜底
+    deadline = time.time() + 8
+    clicked_dev = False
+    while time.time() < deadline:
+        if click_text_iframes(driver, "我的设备"):
+            clicked_dev = True
+            break
         if click_text_iframes(driver, "下线") or click_text_iframes(driver, "我要下线"):
             confirm_logout_dialog(driver)
             log("已直接点击下线按钮（无需进入我的设备）")
             return True
+        time.sleep(0.3)
+    if not clicked_dev:
         log("自助中心没找到「我的设备」入口", "ERROR")
         shot(driver, "no_mydevice")
         dump_page(driver, "no_mydevice")
         write_result(False, "自助中心登录后没找到「我的设备」")
         return False
     log("已点击「我的设备」")
-    time.sleep(3)
+
+    # 等「下线」按钮渲染出来（最多 8 秒），出现立刻点
+    deadline = time.time() + 8
+    while time.time() < deadline:
+        if "下线" in visible_text(driver):
+            break
+        time.sleep(0.3)
 
     if not click_text_iframes(driver, "下线"):
         log("「我的设备」里没找到「下线」按钮", "ERROR")
@@ -404,7 +431,7 @@ def already_online(driver):
     """
     try:
         # 探测专用短超时：未认证时 https 连不上，别傻等 30 秒
-        driver.set_page_load_timeout(10)
+        driver.set_page_load_timeout(8)
         driver.get("https://www.baidu.com")
         title = driver.title or ""
         if "百度" in title:
@@ -416,7 +443,7 @@ def already_online(driver):
         return False
     finally:
         try:
-            driver.set_page_load_timeout(30)
+            driver.set_page_load_timeout(25)
         except Exception:
             pass
 
@@ -447,7 +474,7 @@ def wait_form(driver, timeout=25):
                         continue
         except Exception:
             pass
-        time.sleep(1)
+        time.sleep(0.3)
     return None, switched
 
 
@@ -492,7 +519,7 @@ def post_login_wait(driver, timeout=20):
         for kw in SUCCESS_KEYWORDS:
             if kw in src:
                 return ("success", kw)
-        time.sleep(1)
+        time.sleep(0.3)
     return ("timeout", "")
 
 
@@ -512,7 +539,7 @@ def wait_service_options(driver, timeout=10):
                 return opts
         except Exception:
             pass
-        time.sleep(1)
+        time.sleep(0.3)
     return []
 
 
@@ -587,7 +614,12 @@ def handle_service_dialog(driver, cfg, interactive):
         log("没找到确定按钮，尝试截图排查", "ERROR")
         shot(driver, "no_confirm")
         dump_page(driver, "no_confirm")
-    time.sleep(5)
+    # 轮询等弹窗消失（最多 6 秒），消失即继续
+    deadline = time.time() + 6
+    while time.time() < deadline:
+        if "请选择服务" not in visible_text(driver):
+            break
+        time.sleep(0.3)
     return True
 
 
@@ -658,7 +690,7 @@ def do_login(driver, cfg, interactive=True):
     except Exception:
         driver.execute_script("arguments[0].click()", btn)  # 兜底：JS click
     log("已点击登录按钮")
-    time.sleep(2)
+    time.sleep(1)
     try:  # 服务弹窗在主文档，先切回去
         driver.switch_to.default_content()
     except Exception:

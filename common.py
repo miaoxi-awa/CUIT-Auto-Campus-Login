@@ -113,8 +113,14 @@ def make_driver(headless=False):
     if headless:
         options.add_argument("--headless=new")
 
+    # eager：DOM 就绪就继续，不等图片等慢资源（提速；元素出现靠轮询保证）
+    try:
+        options.page_load_strategy = "eager"
+    except Exception:
+        pass
+
     driver = webdriver.Edge(options=options)
-    driver.set_page_load_timeout(30)
+    driver.set_page_load_timeout(25)
     return driver
 
 
