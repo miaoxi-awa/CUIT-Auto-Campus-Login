@@ -1,0 +1,9 @@
+# 隐私文件：绝不入库
+config.ini
+logs/
+RESULT.txt
+
+# Python
+__pycache__/
+*.pyc
+.venv/
