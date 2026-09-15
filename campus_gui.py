@@ -115,10 +115,10 @@ class App:
         cfg = common.load_config()
         if not core.creds_missing(cfg):
             return True
-        u = simpledialog.askString("首次使用", "校园网账号（学号/工号）:", parent=self.root)
+        u = simpledialog.askstring("首次使用", "校园网账号（学号/工号）:", parent=self.root)
         if not u or not u.strip():
             return False
-        p = simpledialog.askString("首次使用",
+        p = simpledialog.askstring("首次使用",
                                    "校园网密码（此数据保存在本地，项目开源，不用担心）:",
                                    show="*", parent=self.root)
         if not p:
