@@ -132,48 +132,101 @@ def click_text_iframes(driver, text):
     return False
 
 
-def click_text_contains(driver, text):
-    """按包含关系点击元素（兜底，比精确匹配宽松）"""
-    return driver.execute_script(
-        r"var target = arguments[0];"
-        r"function walk(root){var els=root.querySelectorAll('*');"
-        r"for(var i=0;i<els.length;i++){var el=els[i];"
-        r"var t=(el.innerText||'').replace(/\s+/g,'');"
-        r"if(t&&t.indexOf(target)>-1&&t.length<=10&&el.children.length===0&&(el.offsetWidth||el.offsetHeight)){el.click();return true;}"
-        r"if(el.shadowRoot&&walk(el.shadowRoot))return true;}return false;}"
-        r"return walk(document);", text)
+
+
+
+SELF_URL = "http://10.254.241.66/self/index"
 
 
 def do_logout(driver, cfg):
-    """断开校园网：点击「我要下线」。在线状态下认证页 URL 会 302 跳去
-    外部地址（如 123.123.123.123，根本打不开），所以按候选地址逐个尝试，
-    门户首页通常才是带「我要下线」的页面。"""
-    from urllib.parse import urlparse
+    """自助服务中心下线：打开 self/index → 用同一账号密码登录
+    → 点「我的设备」→ 点「下线」→ 处理确认弹窗。
 
-    host = urlparse(cfg["url"]).netloc or "10.254.241.66"
-    candidates = [cfg["url"], "http://%s/" % host, "http://%s/portal/entry/pc/index" % host]
-    log("尝试断开校园网（点击「我要下线」）...")
+    自助页是独立界面（非 iframe 套娃）：账号框 id=nameInput，按钮「立即登录」。
+    """
+    log("打开自助服务中心: %s" % SELF_URL)
+    driver.get(SELF_URL)
+    time.sleep(5)
 
-    for url in candidates:
+    # 有登录表单就先登录；已经是登录态就直接找「我的设备」
+    found, _ = wait_form(driver, 15)
+    if found and found.get("user") and found.get("pass"):
+        log("自助服务需要登录，填写账号密码...")
+        found["user"].clear()
+        found["user"].send_keys(cfg["username"])
+        found["pass"].clear()
+        found["pass"].send_keys(cfg["password"])
+        try:  # 协议/记住我勾选框，有就勾上
+            if driver.execute_script(DEEP_ENSURE_AGREE):
+                driver.execute_script(
+                    "function walk(root){var els=root.querySelectorAll('input[type=checkbox],ion-checkbox');"
+                    "for(var i=0;i<els.length;i++){if(els[i].offsetWidth||els[i].offsetHeight){els[i].click();return true;}"
+                    "if(els[i].shadowRoot&&walk(els[i].shadowRoot))return true;}return false;}"
+                    "return walk(document);")
+                log("已勾选页面勾选框")
+        except Exception:
+            pass
+        btn = driver.execute_script(DEEP_FIND_BUTTON)
+        if btn is None:
+            log("自助登录页没找到「立即登录」按钮", "ERROR")
+            shot(driver, "self_no_btn")
+            dump_page(driver, "self_no_btn")
+            write_result(False, "自助服务登录页没找到登录按钮")
+            return False
         try:
-            driver.get(url)
-        except Exception as e:
-            log("打开 %s 失败: %s" % (url, str(e).split("\n")[0][:70]), "WARN")
-            continue
-        time.sleep(5)
-        # 被重定向离开认证服务器（如 123.123.123.123）说明这个地址在线时不可用
-        cur = driver.current_url
-        if host not in cur:
-            log("%s 在线时被重定向到 %s，换下一个候选地址" % (url, cur), "WARN")
-            continue
-        if click_text_iframes(driver, "我要下线") or click_text_contains(driver, "下线"):
-            confirm_logout_dialog(driver)
-            log("已点击「我要下线」(%s)" % url)
-            return True
-        log("%s 上没找到「我要下线」按钮" % url, "WARN")
+            btn.click()
+        except Exception:
+            driver.execute_script("arguments[0].click()", btn)
+        log("已点击「立即登录」")
 
-    log("所有候选地址都没找到「我要下线」按钮", "WARN")
-    return False
+        # 等登录结果：出现「我的设备」= 成功；失败关键词 = 停手防锁号
+        deadline = time.time() + 20
+        logged_in = False
+        while time.time() < deadline:
+            try:
+                src = driver.page_source
+            except Exception:
+                src = ""
+            if "我的设备" in src:
+                logged_in = True
+                break
+            for kw in FAIL_KEYWORDS:
+                if kw in src:
+                    log("自助服务登录失败，页面提示「%s」，停止重试" % kw, "ERROR")
+                    shot(driver, "self_login_fail")
+                    dump_page(driver, "self_login_fail")
+                    write_result(False, "自助服务登录失败：「%s」，勿反复重试" % kw)
+                    sys.exit(2)
+            time.sleep(1)
+        if not logged_in:
+            log("等待自助服务登录完成超时", "WARN")  # 不直接判死，继续试找「我的设备」
+    else:
+        log("自助服务无需登录（已是登录态）")
+
+    time.sleep(2)
+    # 点「我的设备」；个别版本登录后页面直接有下线按钮，一并兜底
+    if not click_text_iframes(driver, "我的设备"):
+        if click_text_iframes(driver, "下线") or click_text_iframes(driver, "我要下线"):
+            confirm_logout_dialog(driver)
+            log("已直接点击下线按钮（无需进入我的设备）")
+            return True
+        log("自助中心没找到「我的设备」入口", "ERROR")
+        shot(driver, "no_mydevice")
+        dump_page(driver, "no_mydevice")
+        write_result(False, "自助中心登录后没找到「我的设备」")
+        return False
+    log("已点击「我的设备」")
+    time.sleep(3)
+
+    if not click_text_iframes(driver, "下线"):
+        log("「我的设备」里没找到「下线」按钮", "ERROR")
+        shot(driver, "no_logout_btn2")
+        dump_page(driver, "no_logout_btn2")
+        write_result(False, "进入「我的设备」但没找到「下线」按钮")
+        return False
+    log("已点击「下线」")
+    confirm_logout_dialog(driver)
+    return True
 
 
 def confirm_logout_dialog(driver):
@@ -190,32 +243,6 @@ def confirm_logout_dialog(driver):
             log("已确认下线（页面弹窗）")
     except Exception:
         pass
-
-
-def logout_via_my_device(driver, cfg, interactive):
-    """备用下线方案：找不到「我要下线」时，重新登录 → 点「我的设备」→ 点「下线」"""
-    log("改走备用方案：重新登录 → 「我的设备」→ 「下线」")
-    if not do_login(driver, cfg, interactive=interactive):
-        write_result(False, "备用方案：登录未成功，无法从「我的设备」下线")
-        return False
-    time.sleep(2)
-    if not click_text_iframes(driver, "我的设备"):
-        log("登录后没找到「我的设备」", "ERROR")
-        shot(driver, "no_mydevice")
-        dump_page(driver, "no_mydevice")
-        write_result(False, "登录成功但没找到「我的设备」入口")
-        return False
-    log("已点击「我的设备」")
-    time.sleep(3)
-    if not click_text_iframes(driver, "下线"):
-        log("没找到「下线」按钮", "ERROR")
-        shot(driver, "no_logout_btn2")
-        dump_page(driver, "no_logout_btn2")
-        write_result(False, "进入「我的设备」但没找到「下线」按钮")
-        return False
-    log("已点击「下线」")
-    confirm_logout_dialog(driver)
-    return True
 
 
 def creds_missing(cfg):
@@ -614,22 +641,18 @@ def main():
         try:
             driver = make_driver(headless=headless)
             log("=" * 60)
-            log("仅下线模式启动")
+            log("仅下线模式启动（自助服务中心）")
+            # 自助服务要用账号密码登录，缺就现场引导输入
+            if creds_missing(cfg):
+                if args.boot:
+                    log("未配置账号密码，无法登录自助服务中心下线", "ERROR")
+                    write_result(False, "未配置账号密码，无法下线")
+                    sys.exit(2)
+                cfg = prompt_credentials(cfg)
             ok = False
             if do_logout(driver, cfg):
                 ok = True
-                how = "已点击「我要下线」"
-            else:
-                # 备用方案需要账号密码：缺就现场引导输入
-                if creds_missing(cfg):
-                    if args.boot:
-                        log("未配置账号密码，开机自启无法走备用下线方案", "ERROR")
-                        write_result(False, "未配置账号密码，备用下线方案无法执行")
-                        sys.exit(2)
-                    cfg = prompt_credentials(cfg)
-                if logout_via_my_device(driver, cfg, interactive=not args.boot):
-                    ok = True
-                    how = "经「我的设备」→「下线」"
+                how = "自助服务中心下线"
             if ok:
                 log("等待 10 秒让下线生效...")
                 time.sleep(10)
