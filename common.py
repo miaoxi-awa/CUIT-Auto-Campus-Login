@@ -66,8 +66,14 @@ def load_config():
 
 
 def save_url(url):
-    """侦查到真实认证页后，把 URL 写回 config.ini，下次不用再探测"""
-    _set_config("portal", "url", url)
+    """侦查到真实认证页后，把 URL 写回 config.ini，下次不用再探测。
+    校验：必须是 http(s) 内网地址，拒绝 data: 之类的无效值（真实案例：探测时
+    current_url 抓到 "data:," 被写进配置，导致下次直接打不开认证页）。"""
+    u = (url or "").strip()
+    if not u.lower().startswith(("http://", "https://")) or u.lower().startswith("data:"):
+        log("探测到无效认证页地址「%s」，拒绝写入配置" % u[:50], "WARN")
+        return
+    _set_config("portal", "url", u)
 
 
 def save_service(name):
