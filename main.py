@@ -180,18 +180,16 @@ def do_logout(driver, cfg):
         log("已点击「立即登录」")
 
         # 等登录结果：出现「我的设备」= 成功；失败关键词 = 停手防锁号
+        # 注意用可见文字判断，page_source 里的 i18n 资源键（如 account.locked）会误判
         deadline = time.time() + 20
         logged_in = False
         while time.time() < deadline:
-            try:
-                src = driver.page_source
-            except Exception:
-                src = ""
-            if "我的设备" in src:
+            vtext = visible_text(driver)
+            if "我的设备" in vtext:
                 logged_in = True
                 break
             for kw in FAIL_KEYWORDS:
-                if kw in src:
+                if kw in vtext:
                     log("自助服务登录失败，页面提示「%s」，停止重试" % kw, "ERROR")
                     shot(driver, "self_login_fail")
                     dump_page(driver, "self_login_fail")
@@ -227,6 +225,35 @@ def do_logout(driver, cfg):
     log("已点击「下线」")
     confirm_logout_dialog(driver)
     return True
+
+
+# 收集页面「可见文字」（含 Shadow DOM），用于成败关键词判断。
+# 不能直接用 page_source：里面混着 JS/CSS/i18n 资源（如 account.locked 翻译键），
+# 会造成「locked」之类的关键词误判，登录刚成功就被当成失败退出。
+DEEP_VISIBLE_TEXT = r"""
+function walk(root, out) {
+  var els = root.querySelectorAll('*');
+  for (var i = 0; i < els.length; i++) {
+    var el = els[i];
+    if (el.children.length === 0 && (el.offsetWidth || el.offsetHeight)) {
+      var t = el.textContent || '';
+      if (t && t.trim()) out.push(t.trim());
+    }
+    if (el.shadowRoot) walk(el.shadowRoot, out);
+  }
+}
+var out = [];
+walk(document, out);
+return out.join(' ');
+"""
+
+
+def visible_text(driver):
+    """取当前上下文的可见文字（含 iframe 时需先切换）"""
+    try:
+        return driver.execute_script(DEEP_VISIBLE_TEXT) or ""
+    except Exception:
+        return ""
 
 
 def confirm_logout_dialog(driver):
@@ -352,12 +379,12 @@ def judge_result(driver):
 
     result = None
     try:  # 当前上下文（可能在 iframe 里）
-        result = scan(driver.page_source)
+        result = scan(visible_text(driver))
     except Exception:
         pass
     try:  # 主文档（登录成功常整页跳转）
         driver.switch_to.default_content()
-        result = result or scan(driver.page_source)
+        result = result or scan(visible_text(driver))
     except Exception:
         pass
     if result:
@@ -368,13 +395,10 @@ def judge_result(driver):
 
 
 def post_login_wait(driver, timeout=20):
-    """点完登录后轮询：服务弹窗 / 失败提示 / 成功提示，谁先出现算谁"""
+    """点完登录后轮询：服务弹窗 / 失败提示 / 成功提示，谁先出现算谁（可见文字判断）"""
     deadline = time.time() + timeout
     while time.time() < deadline:
-        try:
-            src = driver.page_source
-        except Exception:
-            src = ""
+        src = visible_text(driver)
         if "请选择服务" in src:
             return ("service", "")
         for kw in FAIL_KEYWORDS:
