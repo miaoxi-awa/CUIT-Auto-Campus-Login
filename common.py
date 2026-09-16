@@ -53,7 +53,16 @@ def log(msg, level="INFO"):
 
 
 def load_config():
-    """返回 dict: username, password, url, service, headless"""
+    """返回 dict: username, password, url, service, headless
+
+    config.ini 不存在时（新电脑克隆仓库后首次运行），自动用 config.example.ini
+    生成初始配置 —— 模板里带认证页地址和运营商，只差账号密码，免去重新探测。"""
+    if not os.path.exists(CONFIG_PATH):
+        example = os.path.join(os.path.dirname(CONFIG_PATH), "config.example.ini")
+        if os.path.exists(example):
+            import shutil
+            shutil.copyfile(example, CONFIG_PATH)
+            log("config.ini 不存在，已用模板生成初始配置（认证页地址已带，只需补账号密码）")
     cfg = configparser.ConfigParser()
     cfg.read(CONFIG_PATH, encoding="utf-8")
     return {

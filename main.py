@@ -675,8 +675,9 @@ def do_login(driver, cfg, interactive=True):
     """打开认证页并提交表单，返回 True/False"""
     driver.get(cfg["url"])
 
-    log("等待登录表单渲染（最多 25 秒，含 iframe）...")
-    found, switched = wait_form(driver, 25)
+    # 开机自启时网络可能还没就绪，多等一会儿（interactive=False 即 boot 模式）
+    log("等待登录表单渲染（最多 %d 秒，含 iframe）..." % (25 if interactive else 40))
+    found, switched = wait_form(driver, 25 if interactive else 40)
     if not (found and found.get("user") and found.get("pass")):
         # 表单没出现：最常见的非故障原因是「本来就在线」（认证页不显示表单）。
         # 这时才做一次 baidu 探测兜底，平时零开销。

@@ -43,7 +43,7 @@ class App:
         self.root = root
         self.q = queue.Queue()
         self.busy = False
-        self.boot_retries = 2  # 开机时网络可能未就绪，静默登录失败自动重试
+        self.boot_retries = 3  # 开机时网络可能未就绪，静默登录失败自动重试
 
         root.title("校园网自动登录 · py: %s" % AUTHOR)
         root.geometry("600x500")
