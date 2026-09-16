@@ -82,6 +82,11 @@ def save_url(url):
     if not u.lower().startswith(("http://", "https://")) or u.lower().startswith("data:"):
         log("探测到无效认证页地址「%s」，拒绝写入配置" % u[:50], "WARN")
         return
+    # 探测用的公网地址绝不能当认证页写进去（真实案例：在线状态探测不跳转，
+    # captive.apple.com 自己被当成"认证页"写进配置，下次直接打不开登录页）
+    if "captive.apple.com" in u or "baidu.com" in u:
+        log("探测到的是探测/测试地址「%s」，不是认证页，拒绝写入配置" % u[:60], "WARN")
+        return
     _set_config("portal", "url", u)
 
 

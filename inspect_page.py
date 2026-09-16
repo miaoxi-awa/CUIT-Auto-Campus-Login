@@ -84,7 +84,8 @@ def find_portal(driver, cfg_url):
     log("当前页面地址: %s" % final)
     if not cfg_url and "captive.apple.com" in final:
         log("访问外网未被跳转到认证页 —— 可能校园网本来就是通的，或需要手动访问认证地址", "WARN")
-    if not cfg_url:
+        log("探测地址本身不是认证页，不写入配置（防止污染 config）")
+    if not cfg_url and "captive.apple.com" not in final:
         save_url(final)
         log("已把探测到的认证页地址写回 config.ini")
     return final
