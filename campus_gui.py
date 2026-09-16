@@ -127,7 +127,7 @@ class App:
 
     def open_github(self):
         import webbrowser
-        webbrowser.open("https://github.com/miaoxi-awa/campus-login")
+        webbrowser.open("https://github.com/miaoxi-awa/CUIT-Auto-Campus-Login")
         self.log_line("已在浏览器打开 GitHub 项目页")
 
     # ---------- 账号管理 ----------
