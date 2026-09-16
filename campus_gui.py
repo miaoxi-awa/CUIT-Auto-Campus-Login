@@ -118,8 +118,8 @@ class App:
         self.logbox.config(state="disabled")
 
     def autostart_label(self):
-        from setup_autostart import VBS_PATH
-        return "取消开机自启" if os.path.exists(VBS_PATH) else "安装开机自启"
+        import setup_autostart as sa
+        return "取消开机自启" if sa.is_installed() else "安装开机自启"
 
     def open_logs(self):
         os.makedirs(LOG_DIR, exist_ok=True)
@@ -174,7 +174,7 @@ class App:
     # ---------- 开机自启 ----------
     def toggle_autostart(self):
         import setup_autostart as sa
-        if os.path.exists(sa.VBS_PATH):
+        if sa.is_installed():
             sa.uninstall()
         else:
             if sa.install() != 0:

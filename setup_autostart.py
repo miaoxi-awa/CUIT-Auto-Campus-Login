@@ -1,7 +1,11 @@
 # -*- coding: utf-8 -*-
 import sys as _sys, os as _os
 _sys.path.insert(0, _os.path.dirname(_os.path.abspath(_sys.argv[0])))
-"""开机自启管理：往「启动」文件夹写/删 VBS（不需要管理员权限）。
+"""开机自启管理。
+
+exe 模式：写注册表 HKCU Run 键（比「启动」文件夹先执行，开机更早拉起登录，
+不需要管理员权限），并清理旧版启动文件夹 VBS。
+脚本模式：沿用启动文件夹 VBS。
 
 用法:
     python setup_autostart.py install    # 安装自启
@@ -11,11 +15,48 @@ _sys.path.insert(0, _os.path.dirname(_os.path.abspath(_sys.argv[0])))
 import os
 import sys
 
+try:
+    import winreg
+except ImportError:  # 非 Windows（理论用不到，项目只跑 Windows）
+    winreg = None
+
 from common import BASE_DIR, log
 
 STARTUP_DIR = os.path.join(os.environ["APPDATA"],
                            "Microsoft", "Windows", "Start Menu", "Programs", "Startup")
 VBS_PATH = os.path.join(STARTUP_DIR, "CampusLogin.vbs")
+
+RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+RUN_NAME = "CampusLogin"
+
+
+def _registry_install(exe_path):
+    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_SET_VALUE) as k:
+        winreg.SetValueEx(k, RUN_NAME, 0, winreg.REG_SZ, '"%s" --boot' % exe_path)
+
+
+def _registry_uninstall():
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_SET_VALUE) as k:
+            winreg.DeleteValue(k, RUN_NAME)
+    except OSError:
+        pass  # 本来就没有
+
+
+def _registry_installed():
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_READ) as k:
+            winreg.QueryValueEx(k, RUN_NAME)
+        return True
+    except OSError:
+        return False
+
+
+def is_installed():
+    """GUI 按钮文案用：exe 模式查注册表，脚本模式查 VBS"""
+    if getattr(sys, "frozen", False) and winreg:
+        return _registry_installed()
+    return os.path.exists(VBS_PATH)
 
 
 def get_interpreters():
@@ -40,18 +81,30 @@ def get_interpreters():
 
 
 def install():
-    pyw, py = get_interpreters()
     frozen = getattr(sys, "frozen", False)
-    if frozen:
-        # exe 模式：启动的就是 GUI 自己，--boot 走静默登录（exe 只传一次，别把自己当参数传）
-        script = py
-        run_line = 'sh.Run """" & pyw & """ --boot", 0, False'
-    else:
-        script = os.path.join(BASE_DIR, "main.py")
-        if not os.path.exists(script):
-            log("找不到 main.py: %s" % script, "ERROR")
+    if frozen and winreg:
+        # exe 模式：注册表 Run 键，比启动文件夹先执行，开机更早联网
+        exe = sys.executable
+        _registry_install(exe)
+        if os.path.exists(VBS_PATH):  # 旧版启动文件夹 VBS 迁移清理
+            try:
+                os.remove(VBS_PATH)
+                log("已清理旧版启动文件夹自启项")
+            except OSError:
+                pass
+        if not _registry_installed():
+            log("注册表 Run 键写入失败", "ERROR")
             return 1
-        run_line = 'sh.Run """" & pyw & """ """ & py & """", 0, False'
+        log("已安装开机自启（注册表 Run，早于启动文件夹执行）: %s" % exe)
+        return 0
+
+    # 脚本模式：沿用启动文件夹 VBS
+    pyw, py = get_interpreters()
+    script = os.path.join(BASE_DIR, "main.py")
+    if not os.path.exists(script):
+        log("找不到 main.py: %s" % script, "ERROR")
+        return 1
+    run_line = 'sh.Run """" & pyw & """ """ & py & """", 0, False'
     lines = [
         "Option Explicit",
         "Dim fso, sh, baseDir, pyw, py",
@@ -80,16 +133,24 @@ def install():
 
 
 def uninstall():
+    removed = False
+    if winreg and _registry_installed():
+        _registry_uninstall()
+        removed = True
+        log("已取消开机自启（注册表 Run）")
     if os.path.exists(VBS_PATH):
         os.remove(VBS_PATH)
-        log("已取消开机自启")
-    else:
+        removed = True
+        log("已取消开机自启（启动文件夹 VBS）")
+    if not removed:
         log("本来就没有自启项")
     return 0
 
 
 def status():
-    if os.path.exists(VBS_PATH):
+    if winreg and _registry_installed():
+        log("开机自启: 已安装（注册表 Run）")
+    elif os.path.exists(VBS_PATH):
         log("开机自启: 已安装 (%s)" % VBS_PATH)
     else:
         log("开机自启: 未安装")
