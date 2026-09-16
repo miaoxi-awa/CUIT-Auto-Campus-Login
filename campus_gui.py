@@ -93,6 +93,8 @@ class App:
         self.op_box.pack(side="left", padx=(0, 8))
         ttk.Label(bar_op, text="（登录时会按此选择自动确认）", foreground="#888").pack(side="left")
         self.op_box.bind("<<ComboboxSelected>>", self.on_operator_change)
+        self.b_github = ttk.Button(bar_op, text="GitHub 项目页", width=14, command=self.open_github)
+        self.b_github.pack(side="right")
 
         self.all_buttons = [self.b_login, self.b_logout, self.b_relogin,
                             self.b_account, self.b_clear, self.b_auto, self.b_logs]
@@ -123,6 +125,11 @@ class App:
         os.makedirs(LOG_DIR, exist_ok=True)
         os.startfile(LOG_DIR)
 
+    def open_github(self):
+        import webbrowser
+        webbrowser.open("https://github.com/miaoxi-awa/campus-login")
+        self.log_line("已在浏览器打开 GitHub 项目页")
+
     # ---------- 账号管理 ----------
     def ensure_account(self):
         """GUI 里没有控制台，首次使用用对话框引导输入"""
@@ -133,8 +140,8 @@ class App:
         if not u or not u.strip():
             return False
         p = simpledialog.askstring("首次使用",
-                                   "校园网密码（此数据保存在本地，项目开源，不用担心）:",
-                                   show="*", parent=self.root)
+                                   "校园网密码（明文显示，方便核对；数据仅保存在本地，项目开源，不用担心）:",
+                                   parent=self.root)
         if not p:
             return False
         common.save_account(u.strip(), p)
