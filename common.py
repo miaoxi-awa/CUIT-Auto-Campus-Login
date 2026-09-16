@@ -20,6 +20,10 @@ CONFIG_PATH = os.path.join(BASE_DIR, "config.ini")
 # 署名
 AUTHOR = "miaoxiawa"
 
+# 内置默认认证页地址 / 运营商：单文件 exe 没有模板也能正确生成 config
+DEFAULT_URL = "http://10.254.241.66/portal/entry/pc/authenticate;flowParams=undefined;from="
+DEFAULT_SERVICE = "移动"
+
 # 打包成 exe 后，__file__ 指向临时解压目录，配置必须跟着 exe 走
 if getattr(sys, "frozen", False):
     BASE_DIR = os.path.dirname(os.path.abspath(sys.executable))
@@ -55,8 +59,9 @@ def log(msg, level="INFO"):
 def load_config():
     """返回 dict: username, password, url, service, headless
 
-    config.ini 不存在时（新电脑克隆仓库后首次运行），自动用 config.example.ini
-    生成初始配置 —— 模板里带认证页地址和运营商，只差账号密码，免去重新探测。"""
+    config.ini 不存在时（新电脑首次运行），自动生成初始配置：
+    优先用旁边的 config.example.ini；没有模板也行 —— 认证页地址和运营商
+    已内置在程序里（DEFAULT_URL / DEFAULT_SERVICE），单文件 exe 也能用。"""
     if not os.path.exists(CONFIG_PATH):
         example = os.path.join(os.path.dirname(CONFIG_PATH), "config.example.ini")
         if os.path.exists(example):
@@ -65,11 +70,22 @@ def load_config():
             log("config.ini 不存在，已用模板生成初始配置（认证页地址已带，只需补账号密码）")
     cfg = configparser.ConfigParser()
     cfg.read(CONFIG_PATH, encoding="utf-8")
+    url = cfg.get("portal", "url", fallback="").strip()
+    if not url:
+        # url 为空（老配置或无模板）：写入内置默认认证页地址
+        url = DEFAULT_URL
+        _set_config("portal", "url", url)
+        log("config 里 url 为空，已写入内置默认认证页地址")
+    service = cfg.get("portal", "service", fallback="").strip()
+    if not service:
+        service = DEFAULT_SERVICE
+        _set_config("portal", "service", service)
+        log("config 里 service 为空，已写入内置默认运营商「%s」" % service)
     return {
         "username": cfg.get("account", "username", fallback="").strip(),
         "password": cfg.get("account", "password", fallback="").strip(),
-        "url": cfg.get("portal", "url", fallback="").strip(),
-        "service": cfg.get("portal", "service", fallback="").strip(),
+        "url": url,
+        "service": service,
         "headless": cfg.get("browser", "headless", fallback="false").strip().lower() == "true",
     }
 
