@@ -95,11 +95,12 @@ class App:
         ttk.Label(bar_op, text="浏览器：").pack(side="left")
         self.browsers = common.detect_browsers()  # [(key, 显示名, exe路径)]
         self.browser_var = tk.StringVar()
-        self.browser_box = ttk.Combobox(bar_op, textvariable=self.browser_var, width=8,
-                                        values=[n for _, n, _p in self.browsers], state="readonly")
+        self.browser_box = ttk.Combobox(bar_op, textvariable=self.browser_var, width=20,
+                                        values=["自动（推荐）"] + [n for _, n, _p in self.browsers],
+                                        state="readonly")
         name_map = {k: n for k, n, _p in self.browsers}
-        cur_b = (common.load_config().get("browser") or "edge").lower()
-        self.browser_var.set(name_map.get(cur_b, self.browsers[0][1]))
+        cur_b = (common.load_config().get("browser") or "auto").lower()
+        self.browser_var.set(name_map.get(cur_b, "自动（推荐）"))
         self.browser_box.pack(side="left")
         self.browser_box.bind("<<ComboboxSelected>>", self.on_browser_change)
 
@@ -107,8 +108,10 @@ class App:
         self.b_github.pack(side="right")
 
         ttk.Label(root, padding=(14, 0, 14, 0), foreground="#888",
-                  text="提示：Edge 驱动已内置缓存；首次切换到 Chrome / Firefox 需联网下载对应驱动（geckodriver / chromedriver），"
-                       "建议先在已联网状态下点一次登录把驱动缓存下来，之后再断网也不受影响。",
+                  text="支持 Edge / Chrome / Firefox 及主流 Chromium 内核浏览器（360、QQ、搜狗、2345、UC、傲游、Brave、Opera、Vivaldi…，"
+                       "自动识别本机已安装的）。选「自动」会依次尝试直到成功。\n"
+                       "提示：Edge 驱动已内置缓存；首次使用 Chrome / Firefox 或其他内核浏览器需联网下载对应驱动，"
+                       "建议先联网跑一次登录把驱动缓存下来，之后断网也能用。",
                   wraplength=560, justify="left").pack(fill="x")
 
         self.all_buttons = [self.b_login, self.b_logout,
@@ -181,20 +184,23 @@ class App:
 
     def on_browser_change(self, _event=None):
         name = self.browser_var.get().strip()
+        if name.startswith("自动"):
+            common.save_browser("auto")
+            self.log_line("已切换为「自动」：按检测顺序尝试，第一个能启动的浏览器生效")
+            return
         key = next((k for k, n, _p in self.browsers if n == name), "edge")
         common.save_browser(key)
         self.log_line("自动化浏览器已切换为 %s" % name)
-        if key in ("chrome", "firefox"):
-            self.log_line("提示：首次使用 %s 时 Selenium 需联网下载对应驱动"
-                          "（geckodriver / chromedriver），建议先在已联网状态下点一次登录把驱动"
-                          "缓存下来，之后再断网用就没问题。（Edge 驱动已缓存，不受影响）" % name)
+        if key not in ("edge",):
+            self.log_line("提示：首次使用 %s 时 Selenium 需联网下载对应驱动，建议先在已联网状态下"
+                          "点一次登录把驱动缓存下来，之后再断网用就没问题。（Edge 驱动已缓存，不受影响）" % name)
             if key not in self.warned_browsers:
                 self.warned_browsers.add(key)
                 messagebox.showinfo(
                     "驱动下载提示",
-                    "首次使用 %s，Selenium 需要联网下载对应驱动（geckodriver / chromedriver）。\n\n"
+                    "首次使用 %s，Selenium 需要联网下载对应驱动。\n\n"
                     "建议在已联网状态下先点一次「登录一次」把驱动缓存下来，"
-                    "之后再断网使用就没问题。\n\n"
+                    "之后再断开网使用就没问题。\n\n"
                     "（Edge 驱动已内置缓存，不受影响）" % name)
 
     def ensure_operator(self):

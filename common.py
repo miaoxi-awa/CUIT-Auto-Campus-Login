@@ -83,9 +83,9 @@ def load_config():
         log("config 里 service 为空，已写入内置默认运营商「%s」" % service)
     browser = cfg.get("browser", "browser", fallback="").strip().lower()
     if not browser:
-        browser = detect_browsers()[0][0]  # 本机检测到的第一个浏览器
+        browser = "auto"  # 自动：按检测顺序尝试，第一个能启动的生效
         _set_config("browser", "browser", browser)
-        log("config 里未指定浏览器，已自动选用本机的「%s」" % browser)
+        log("config 里未指定浏览器，已设为「auto」自动选择")
     return {
         "username": cfg.get("account", "username", fallback="").strip(),
         "password": cfg.get("account", "password", fallback="").strip(),
@@ -145,21 +145,77 @@ def _set_config(section, key, value):
         cfg.write(f)
 
 
+# (key, 显示名, exe 名, 常见安装路径, 内核)
+# 内核决定用哪个驱动：chromium → ChromeDriver/EdgeDriver，firefox → geckodriver
+# 国产浏览器绝大多数是 Chromium 内核（360/QQ/搜狗/2345/UC/傲游等），
+# 可以用 ChromeDriver + binary_location 驱动（能否成功取决于其内核版本与驱动是否匹配）
 BROWSER_DEFS = [
     ("edge", "Edge", "msedge.exe", [
         r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
         r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
-    ]),
+    ], "edge"),
     ("chrome", "Chrome", "chrome.exe", [
         r"C:\Program Files\Google\Chrome\Application\chrome.exe",
         r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
         os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"),
-    ]),
+    ], "chromium"),
     ("firefox", "Firefox", "firefox.exe", [
         r"C:\Program Files\Mozilla Firefox\firefox.exe",
         r"C:\Program Files (x86)\Mozilla Firefox\firefox.exe",
-    ]),
+    ], "firefox"),
+    ("brave", "Brave", "brave.exe", [
+        r"C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe",
+        r"C:\Program Files (x86)\BraveSoftware\Brave-Browser\Application\brave.exe",
+        os.path.expandvars(r"%LOCALAPPDATA%\BraveSoftware\Brave-Browser\Application\brave.exe"),
+    ], "chromium"),
+    ("vivaldi", "Vivaldi", "vivaldi.exe", [
+        os.path.expandvars(r"%LOCALAPPDATA%\Vivaldi\Application\vivaldi.exe"),
+        r"C:\Program Files\Vivaldi\Application\vivaldi.exe",
+    ], "chromium"),
+    ("opera", "Opera", "opera.exe", [
+        os.path.expandvars(r"%LOCALAPPDATA%\Programs\Opera\opera.exe"),
+        r"C:\Program Files\Opera\opera.exe",
+        r"C:\Program Files (x86)\Opera\opera.exe",
+    ], "chromium"),
+    ("360se", "360安全浏览器", "360se.exe", [
+        r"C:\Program Files (x86)\360\360se6\Application\360se.exe",
+        r"C:\Program Files\360\360se6\Application\360se.exe",
+        os.path.expandvars(r"%APPDATA%\360se6\Application\360se.exe"),
+    ], "chromium"),
+    ("360chrome", "360极速浏览器", "360chrome.exe", [
+        r"C:\Program Files (x86)\360\360Chrome\Chrome\Application\360chrome.exe",
+        r"C:\Program Files\360\360Chrome\Chrome\Application\360chrome.exe",
+    ], "chromium"),
+    ("qqbrowser", "QQ浏览器", "QQBrowser.exe", [
+        r"C:\Program Files (x86)\Tencent\QQBrowser\QQBrowser.exe",
+        r"C:\Program Files\Tencent\QQBrowser\QQBrowser.exe",
+        os.path.expandvars(r"%LOCALAPPDATA%\Tencent\QQBrowser\QQBrowser.exe"),
+    ], "chromium"),
+    ("sogou", "搜狗高速浏览器", "SogouExplorer.exe", [
+        r"C:\Program Files (x86)\SogouExplorer\SogouExplorer.exe",
+        r"C:\Program Files\SogouExplorer\SogouExplorer.exe",
+    ], "chromium"),
+    ("2345", "2345加速浏览器", "2345Explorer.exe", [
+        r"C:\Program Files (x86)\2345Soft\2345Explorer\2345Explorer.exe",
+        r"C:\Program Files\2345Soft\2345Explorer\2345Explorer.exe",
+        os.path.expandvars(r"%LOCALAPPDATA%\2345Soft\2345Explorer\2345Explorer.exe"),
+    ], "chromium"),
+    ("maxthon", "傲游浏览器", "Maxthon.exe", [
+        r"C:\Program Files (x86)\Maxthon\Bin\Maxthon.exe",
+        r"C:\Program Files\Maxthon\Bin\Maxthon.exe",
+    ], "chromium"),
+    ("uc", "UC浏览器", "UCBrowser.exe", [
+        r"C:\Program Files (x86)\UCBrowser\Application\UCBrowser.exe",
+        r"C:\Program Files\UCBrowser\Application\UCBrowser.exe",
+    ], "chromium"),
 ]
+
+
+def _family_of(key):
+    for k, _n, _e, _p, family in BROWSER_DEFS:
+        if k == key:
+            return family
+    return "chromium"
 
 
 def _reg_app_path(exe_name):
@@ -182,29 +238,30 @@ def _reg_app_path(exe_name):
     return None
 
 
-def _scan_drive_roots(exe_name, keyword):
+def _scan_drive_roots(exe_name):
     """扫各盘根目录一层，找自定义安装的浏览器（如 D:\\firefox\\firefox.exe）"""
     import string
+    keyword = exe_name.lower().replace(".exe", "")
     for letter in string.ascii_uppercase:
-        for drive in ("%s:\\" % letter,):
-            try:
-                if not os.path.exists(drive):
-                    continue
-                for entry in os.listdir(drive):
-                    low = entry.lower()
-                    if keyword not in low:
-                        continue
-                    cand = os.path.join(drive, entry, exe_name)
-                    if os.path.isfile(cand):
-                        return cand
-            except OSError:
+        drive = "%s:\\" % letter
+        try:
+            if not os.path.exists(drive):
                 continue
+            for entry in os.listdir(drive):
+                low = entry.lower()
+                if keyword not in low and low != "mozilla firefox":
+                    continue
+                cand = os.path.join(drive, entry, exe_name)
+                if os.path.isfile(cand):
+                    return cand
+        except OSError:
+            continue
     return None
 
 
 def find_browser(key):
     """返回指定浏览器的可执行文件路径（找不到返回 None）"""
-    for k, _name, exe_name, paths in BROWSER_DEFS:
+    for k, _name, exe_name, paths, _fam in BROWSER_DEFS:
         if k != key:
             continue
         for p in paths:
@@ -213,17 +270,17 @@ def find_browser(key):
         p = _reg_app_path(exe_name)
         if p:
             return p
-        return _scan_drive_roots(exe_name, k)
+        return _scan_drive_roots(exe_name)
     return None
 
 
 def detect_browsers():
     """探测本机已安装的浏览器，返回 [(key, 显示名, exe路径或None), ...]"""
     found = []
-    for key, name, exe_name, paths in BROWSER_DEFS:
+    for key, name, exe_name, paths, _fam in BROWSER_DEFS:
         p = next((x for x in paths if os.path.exists(x)), None)
         if not p:
-            p = _reg_app_path(exe_name) or _scan_drive_roots(exe_name, key)
+            p = _reg_app_path(exe_name) or _scan_drive_roots(exe_name)
         if p:
             found.append((key, name, p))
     if not found:
@@ -232,14 +289,34 @@ def detect_browsers():
 
 
 def make_driver(headless=False, browser="edge"):
-    """启动浏览器（edge/chrome/firefox）。必须在创建 driver 之前设置 no_proxy，
-    否则 Selenium 连本机 WebDriver 端口会被系统代理劫持而失败。
-    注意：首次使用某浏览器时 Selenium Manager 需联网下载对应驱动。"""
+    """启动浏览器。支持 edge / chrome / firefox / 各 Chromium 内核浏览器 / auto。
+
+    auto：按探测顺序逐个尝试，第一个能起来的就用（发到网上给不确定环境的用户用）。
+    注意：首次使用某浏览器时 Selenium Manager 需联网下载对应驱动。
+    """
+    if browser == "auto":
+        candidates = [k for k, _n, _p in detect_browsers()]
+        last_err = None
+        for key in candidates:
+            try:
+                log("自动模式：尝试使用 %s ..." % key)
+                return _make_driver_once(headless, key)
+            except Exception as e:
+                last_err = e
+                log("用 %s 启动失败（%s），换下一个浏览器重试" % (key, str(e).split("\n")[0][:80]), "WARN")
+        raise last_err or RuntimeError("没有可用浏览器")
+    return _make_driver_once(headless, browser)
+
+
+def _make_driver_once(headless, browser):
+    """按内核创建 driver。必须在创建 driver 之前设置 no_proxy，
+    否则 Selenium 连本机 WebDriver 端口会被系统代理劫持而失败。"""
     os.environ["no_proxy"] = os.environ["NO_PROXY"] = "127.0.0.1,localhost,::1"
 
     from selenium import webdriver
 
     exe_path = find_browser(browser)  # 自定义安装目录（如 D:\firefox）也能识别
+    family = _family_of(browser)
 
     args = [
         "--ignore-certificate-errors",
@@ -251,26 +328,7 @@ def make_driver(headless=False, browser="edge"):
         "--proxy-bypass-list=*",
     ]
 
-    if browser == "chrome":
-        options = webdriver.ChromeOptions()
-        for a in args:
-            options.add_argument(a)
-        if headless:
-            options.add_argument("--headless=new")
-        _set_eager(options)
-        if exe_path:
-            options.binary_location = exe_path
-        driver = webdriver.Chrome(options=options)
-    elif browser == "firefox":
-        options = webdriver.FirefoxOptions()
-        if headless:
-            options.add_argument("-headless")
-        _set_eager(options)
-        options.set_preference("network.proxy.type", 0)  # 直连，绕开系统代理
-        if exe_path:
-            options.binary_location = exe_path
-        driver = webdriver.Firefox(options=options)
-    else:
+    if family == "edge":
         options = webdriver.EdgeOptions()
         for a in args:
             options.add_argument(a)
@@ -280,6 +338,26 @@ def make_driver(headless=False, browser="edge"):
         if exe_path:
             options.binary_location = exe_path
         driver = webdriver.Edge(options=options)
+    elif family == "firefox":
+        options = webdriver.FirefoxOptions()
+        if headless:
+            options.add_argument("-headless")
+        _set_eager(options)
+        options.set_preference("network.proxy.type", 0)  # 直连，绕开系统代理
+        if exe_path:
+            options.binary_location = exe_path
+        driver = webdriver.Firefox(options=options)
+    else:
+        # Chromium 内核（Chrome、Brave、Vivaldi、Opera、360、QQ、搜狗、2345、UC、傲游…）
+        options = webdriver.ChromeOptions()
+        for a in args:
+            options.add_argument(a)
+        if headless:
+            options.add_argument("--headless=new")
+        _set_eager(options)
+        if exe_path:
+            options.binary_location = exe_path
+        driver = webdriver.Chrome(options=options)
 
     driver.set_page_load_timeout(25)
     return driver
