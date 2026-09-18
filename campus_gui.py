@@ -44,6 +44,7 @@ class App:
         self.q = queue.Queue()
         self.busy = False
         self.boot_retries = 3  # 开机时网络可能未就绪，静默登录失败自动重试
+        self.warned_browsers = set()  # 已提示过驱动下载的浏览器（每会话一次）
 
         root.title("校园网自动登录 · py: %s" % AUTHOR)
         root.geometry("600x500")
@@ -104,6 +105,11 @@ class App:
 
         self.b_github = ttk.Button(bar_op, text="GitHub 项目页", width=14, command=self.open_github)
         self.b_github.pack(side="right")
+
+        ttk.Label(root, padding=(14, 0, 14, 0), foreground="#888",
+                  text="提示：Edge 驱动已内置缓存；首次切换到 Chrome / Firefox 需联网下载对应驱动（geckodriver / chromedriver），"
+                       "建议先在已联网状态下点一次登录把驱动缓存下来，之后再断网也不受影响。",
+                  wraplength=560, justify="left").pack(fill="x")
 
         self.all_buttons = [self.b_login, self.b_logout,
                             self.b_account, self.b_clear, self.b_auto, self.b_logs]
@@ -178,6 +184,18 @@ class App:
         key = next((k for k, n, _p in self.browsers if n == name), "edge")
         common.save_browser(key)
         self.log_line("自动化浏览器已切换为 %s" % name)
+        if key in ("chrome", "firefox"):
+            self.log_line("提示：首次使用 %s 时 Selenium 需联网下载对应驱动"
+                          "（geckodriver / chromedriver），建议先在已联网状态下点一次登录把驱动"
+                          "缓存下来，之后再断网用就没问题。（Edge 驱动已缓存，不受影响）" % name)
+            if key not in self.warned_browsers:
+                self.warned_browsers.add(key)
+                messagebox.showinfo(
+                    "驱动下载提示",
+                    "首次使用 %s，Selenium 需要联网下载对应驱动（geckodriver / chromedriver）。\n\n"
+                    "建议在已联网状态下先点一次「登录一次」把驱动缓存下来，"
+                    "之后再断网使用就没问题。\n\n"
+                    "（Edge 驱动已内置缓存，不受影响）" % name)
 
     def ensure_operator(self):
         """登录类操作前确保已选运营商，避免 GUI 模式下无法交互选择"""
