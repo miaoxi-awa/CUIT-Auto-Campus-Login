@@ -92,11 +92,11 @@ class App:
 
         # 自动化浏览器：自动探测本机已安装的浏览器，可切换
         ttk.Label(bar_op, text="浏览器：").pack(side="left")
-        self.browsers = common.detect_browsers()  # [(key, 显示名)]
+        self.browsers = common.detect_browsers()  # [(key, 显示名, exe路径)]
         self.browser_var = tk.StringVar()
         self.browser_box = ttk.Combobox(bar_op, textvariable=self.browser_var, width=8,
-                                        values=[n for _, n in self.browsers], state="readonly")
-        name_map = {k: n for k, n in self.browsers}
+                                        values=[n for _, n, _p in self.browsers], state="readonly")
+        name_map = {k: n for k, n, _p in self.browsers}
         cur_b = (common.load_config().get("browser") or "edge").lower()
         self.browser_var.set(name_map.get(cur_b, self.browsers[0][1]))
         self.browser_box.pack(side="left")
@@ -175,7 +175,7 @@ class App:
 
     def on_browser_change(self, _event=None):
         name = self.browser_var.get().strip()
-        key = next((k for k, n in self.browsers if n == name), "edge")
+        key = next((k for k, n, _p in self.browsers if n == name), "edge")
         common.save_browser(key)
         self.log_line("自动化浏览器已切换为 %s" % name)
 

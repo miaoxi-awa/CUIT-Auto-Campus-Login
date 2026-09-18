@@ -145,27 +145,89 @@ def _set_config(section, key, value):
         cfg.write(f)
 
 
+BROWSER_DEFS = [
+    ("edge", "Edge", "msedge.exe", [
+        r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+        r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+    ]),
+    ("chrome", "Chrome", "chrome.exe", [
+        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+        os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"),
+    ]),
+    ("firefox", "Firefox", "firefox.exe", [
+        r"C:\Program Files\Mozilla Firefox\firefox.exe",
+        r"C:\Program Files (x86)\Mozilla Firefox\firefox.exe",
+    ]),
+]
+
+
+def _reg_app_path(exe_name):
+    """查注册表 App Paths —— 能定位自定义安装目录（如 D:\\firefox\\firefox.exe）"""
+    try:
+        import winreg
+    except ImportError:
+        return None
+    sub = r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\%s" % exe_name
+    sub32 = r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\App Paths\%s" % exe_name
+    for root in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER):
+        for path in (sub, sub32):
+            try:
+                with winreg.OpenKey(root, path) as k:
+                    val, _ = winreg.QueryValueEx(k, "")
+                if val and os.path.exists(val):
+                    return val
+            except OSError:
+                continue
+    return None
+
+
+def _scan_drive_roots(exe_name, keyword):
+    """扫各盘根目录一层，找自定义安装的浏览器（如 D:\\firefox\\firefox.exe）"""
+    import string
+    for letter in string.ascii_uppercase:
+        for drive in ("%s:\\" % letter,):
+            try:
+                if not os.path.exists(drive):
+                    continue
+                for entry in os.listdir(drive):
+                    low = entry.lower()
+                    if keyword not in low:
+                        continue
+                    cand = os.path.join(drive, entry, exe_name)
+                    if os.path.isfile(cand):
+                        return cand
+            except OSError:
+                continue
+    return None
+
+
+def find_browser(key):
+    """返回指定浏览器的可执行文件路径（找不到返回 None）"""
+    for k, _name, exe_name, paths in BROWSER_DEFS:
+        if k != key:
+            continue
+        for p in paths:
+            if os.path.exists(p):
+                return p
+        p = _reg_app_path(exe_name)
+        if p:
+            return p
+        return _scan_drive_roots(exe_name, k)
+    return None
+
+
 def detect_browsers():
-    """探测本机已安装的浏览器，返回 [(key, 显示名), ...]，顺序即优先级"""
-    candidates = [
-        ("edge", "Edge", [
-            r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
-            r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
-        ]),
-        ("chrome", "Chrome", [
-            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
-            os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"),
-        ]),
-        ("firefox", "Firefox", [
-            r"C:\Program Files\Mozilla Firefox\firefox.exe",
-            r"C:\Program Files (x86)\Mozilla Firefox\firefox.exe",
-        ]),
-    ]
-    found = [(key, name) for key, name, paths in candidates
-             if any(os.path.exists(p) for p in paths)]
+    """探测本机已安装的浏览器，返回 [(key, 显示名, exe路径或None), ...]"""
+    found = []
+    for key, name, exe_name, paths in BROWSER_DEFS:
+        p = next((x for x in paths if os.path.exists(x)), None)
+        if not p:
+            p = _reg_app_path(exe_name) or _scan_drive_roots(exe_name, key)
+        if p:
+            found.append((key, name, p))
     if not found:
-        found = [("edge", "Edge")]  # 兜底：交给 Selenium Manager 报错提示
+        found = [("edge", "Edge", None)]  # 兜底：交给 Selenium Manager
     return found
 
 
@@ -176,6 +238,8 @@ def make_driver(headless=False, browser="edge"):
     os.environ["no_proxy"] = os.environ["NO_PROXY"] = "127.0.0.1,localhost,::1"
 
     from selenium import webdriver
+
+    exe_path = find_browser(browser)  # 自定义安装目录（如 D:\firefox）也能识别
 
     args = [
         "--ignore-certificate-errors",
@@ -194,6 +258,8 @@ def make_driver(headless=False, browser="edge"):
         if headless:
             options.add_argument("--headless=new")
         _set_eager(options)
+        if exe_path:
+            options.binary_location = exe_path
         driver = webdriver.Chrome(options=options)
     elif browser == "firefox":
         options = webdriver.FirefoxOptions()
@@ -201,6 +267,8 @@ def make_driver(headless=False, browser="edge"):
             options.add_argument("-headless")
         _set_eager(options)
         options.set_preference("network.proxy.type", 0)  # 直连，绕开系统代理
+        if exe_path:
+            options.binary_location = exe_path
         driver = webdriver.Firefox(options=options)
     else:
         options = webdriver.EdgeOptions()
@@ -209,6 +277,8 @@ def make_driver(headless=False, browser="edge"):
         if headless:
             options.add_argument("--headless=new")
         _set_eager(options)
+        if exe_path:
+            options.binary_location = exe_path
         driver = webdriver.Edge(options=options)
 
     driver.set_page_load_timeout(25)

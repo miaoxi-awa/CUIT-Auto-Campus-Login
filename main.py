@@ -840,10 +840,7 @@ def main():
                 ok = True
                 how = "自助服务中心下线"
             if ok:
-                log("等待 10 秒让下线生效...")
-                time.sleep(10)
-                check_browser()
-                write_result(True, "%s，已等待 10 秒，未重连" % how)
+                write_result(True, "%s，已下线" % how)
                 log("下线完成")
                 code = 0
             else:
@@ -874,11 +871,9 @@ def main():
         driver = make_driver(headless=headless, browser=cfg.get("browser", "edge"))
         start_watchdog(driver)
         if args.offline:
-            # 断线重连：先下线，等 10 秒，再走完整登录流程
+            # 断线重连（仅命令行 --offline）：先下线，再走完整登录流程
             if not do_logout(driver, cfg):
                 sys.exit(1)
-            log("等待 10 秒让下线生效...")
-            time.sleep(10)
             check_browser()
         log("开始登录 %s" % cfg["url"])
         if do_login(driver, cfg, interactive=not args.boot):
