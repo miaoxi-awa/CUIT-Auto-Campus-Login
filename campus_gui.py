@@ -231,7 +231,7 @@ class App:
                             text="状态：开机登录未成功，15 秒后自动重试...",
                             foreground="#b26a00")
                         self.root.after(15000, lambda: self.run_flow(
-                            ["--once", "--silent", "--boot"], "开机自动登录(重试)"))
+                            ["--once", "--boot"], "开机自动登录(重试)"))
                     else:
                         self.status.config(
                             text="状态：完成（%s）" % ("成功" if ok else "失败，详见日志/RESULT.txt"),
@@ -250,9 +250,9 @@ def main():
     app = App(root)
 
     if BOOT:
-        # 开机自启：不弹窗，静默登录，完成后自动退出
-        root.withdraw()
-        root.after(300, lambda: app.run_flow(["--once", "--silent", "--boot"], "开机自动登录"))
+        # 开机自启：显示界面 → 自动点「登录一次」→ 登录完成后自动关闭
+        # （不用 --silent，浏览器正常显示窗口，比 headless 启动更快）
+        root.after(500, lambda: app.run_flow(["--once", "--boot"], "开机自动登录"))
     elif "--shot" in sys.argv:
         # 预览模式：渲染后截图保存并退出
         path = sys.argv[sys.argv.index("--shot") + 1]

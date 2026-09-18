@@ -71,11 +71,11 @@ def load_config():
     cfg = configparser.ConfigParser()
     cfg.read(CONFIG_PATH, encoding="utf-8")
     url = cfg.get("portal", "url", fallback="").strip()
-    if not url:
-        # url 为空（老配置或无模板）：写入内置默认认证页地址
+    # 为空、或被探测地址污染（旧版本 bug 会把 captive.apple.com 写进来）→ 自动纠正
+    if not url or "captive.apple.com" in url or "baidu.com" in url:
         url = DEFAULT_URL
         _set_config("portal", "url", url)
-        log("config 里 url 为空，已写入内置默认认证页地址")
+        log("config 里 url 为空或无效，已写入内置默认认证页地址")
     service = cfg.get("portal", "service", fallback="").strip()
     if not service:
         service = DEFAULT_SERVICE
