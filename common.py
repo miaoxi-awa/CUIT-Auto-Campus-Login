@@ -81,13 +81,24 @@ def load_config():
         service = DEFAULT_SERVICE
         _set_config("portal", "service", service)
         log("config 里 service 为空，已写入内置默认运营商「%s」" % service)
+    browser = cfg.get("browser", "browser", fallback="").strip().lower()
+    if not browser:
+        browser = detect_browsers()[0][0]  # 本机检测到的第一个浏览器
+        _set_config("browser", "browser", browser)
+        log("config 里未指定浏览器，已自动选用本机的「%s」" % browser)
     return {
         "username": cfg.get("account", "username", fallback="").strip(),
         "password": cfg.get("account", "password", fallback="").strip(),
         "url": url,
         "service": service,
+        "browser": browser,
         "headless": cfg.get("browser", "headless", fallback="false").strip().lower() == "true",
     }
+
+
+def save_browser(browser):
+    """把用户选择的自动化浏览器写回 config.ini"""
+    _set_config("browser", "browser", browser)
 
 
 def save_url(url):
@@ -134,14 +145,38 @@ def _set_config(section, key, value):
         cfg.write(f)
 
 
-def make_driver(headless=False):
-    """启动 Edge。必须在创建 driver 之前设置 no_proxy，
-    否则 Selenium 连本机 WebDriver 端口会被系统代理劫持而失败。"""
+def detect_browsers():
+    """探测本机已安装的浏览器，返回 [(key, 显示名), ...]，顺序即优先级"""
+    candidates = [
+        ("edge", "Edge", [
+            r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+            r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+        ]),
+        ("chrome", "Chrome", [
+            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+            os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"),
+        ]),
+        ("firefox", "Firefox", [
+            r"C:\Program Files\Mozilla Firefox\firefox.exe",
+            r"C:\Program Files (x86)\Mozilla Firefox\firefox.exe",
+        ]),
+    ]
+    found = [(key, name) for key, name, paths in candidates
+             if any(os.path.exists(p) for p in paths)]
+    if not found:
+        found = [("edge", "Edge")]  # 兜底：交给 Selenium Manager 报错提示
+    return found
+
+
+def make_driver(headless=False, browser="edge"):
+    """启动浏览器（edge/chrome/firefox）。必须在创建 driver 之前设置 no_proxy，
+    否则 Selenium 连本机 WebDriver 端口会被系统代理劫持而失败。
+    注意：首次使用某浏览器时 Selenium Manager 需联网下载对应驱动。"""
     os.environ["no_proxy"] = os.environ["NO_PROXY"] = "127.0.0.1,localhost,::1"
 
     from selenium import webdriver
 
-    options = webdriver.EdgeOptions()
     args = [
         "--ignore-certificate-errors",
         "--no-first-run",
@@ -151,20 +186,41 @@ def make_driver(headless=False):
         "--no-proxy-server",
         "--proxy-bypass-list=*",
     ]
-    for a in args:
-        options.add_argument(a)
-    if headless:
-        options.add_argument("--headless=new")
 
-    # eager：DOM 就绪就继续，不等图片等慢资源（提速；元素出现靠轮询保证）
+    if browser == "chrome":
+        options = webdriver.ChromeOptions()
+        for a in args:
+            options.add_argument(a)
+        if headless:
+            options.add_argument("--headless=new")
+        _set_eager(options)
+        driver = webdriver.Chrome(options=options)
+    elif browser == "firefox":
+        options = webdriver.FirefoxOptions()
+        if headless:
+            options.add_argument("-headless")
+        _set_eager(options)
+        options.set_preference("network.proxy.type", 0)  # 直连，绕开系统代理
+        driver = webdriver.Firefox(options=options)
+    else:
+        options = webdriver.EdgeOptions()
+        for a in args:
+            options.add_argument(a)
+        if headless:
+            options.add_argument("--headless=new")
+        _set_eager(options)
+        driver = webdriver.Edge(options=options)
+
+    driver.set_page_load_timeout(25)
+    return driver
+
+
+def _set_eager(options):
+    """eager：DOM 就绪就继续，不等图片等慢资源（提速；元素出现靠轮询保证）"""
     try:
         options.page_load_strategy = "eager"
     except Exception:
         pass
-
-    driver = webdriver.Edge(options=options)
-    driver.set_page_load_timeout(25)
-    return driver
 
 
 def shot(driver, name):

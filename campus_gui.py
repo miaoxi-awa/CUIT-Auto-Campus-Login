@@ -64,11 +64,8 @@ class App:
                                   command=lambda: self.run_flow(["--once"], "登录中"))
         self.b_logout = ttk.Button(bar1, text="仅下线", width=16,
                                    command=lambda: self.run_flow(["--logout-only"], "下线中"))
-        self.b_relogin = ttk.Button(bar1, text="断线重连", width=16,
-                                    command=lambda: self.run_flow(["--once", "--offline"], "断线重连中"))
         self.b_login.pack(side="left", padx=(0, 8))
         self.b_logout.pack(side="left", padx=8)
-        self.b_relogin.pack(side="left", padx=8)
 
         bar2 = ttk.Frame(root, padding=(12, 2, 12, 2))
         bar2.pack(fill="x")
@@ -90,13 +87,25 @@ class App:
                                    values=("电信", "移动", "联通"), state="readonly")
         cur = (common.load_config().get("service") or "").strip()
         self.op_var.set(cur if cur in ("电信", "移动", "联通") else "")
-        self.op_box.pack(side="left", padx=(0, 8))
-        ttk.Label(bar_op, text="（登录时会按此选择自动确认）", foreground="#888").pack(side="left")
+        self.op_box.pack(side="left", padx=(0, 12))
         self.op_box.bind("<<ComboboxSelected>>", self.on_operator_change)
+
+        # 自动化浏览器：自动探测本机已安装的浏览器，可切换
+        ttk.Label(bar_op, text="浏览器：").pack(side="left")
+        self.browsers = common.detect_browsers()  # [(key, 显示名)]
+        self.browser_var = tk.StringVar()
+        self.browser_box = ttk.Combobox(bar_op, textvariable=self.browser_var, width=8,
+                                        values=[n for _, n in self.browsers], state="readonly")
+        name_map = {k: n for k, n in self.browsers}
+        cur_b = (common.load_config().get("browser") or "edge").lower()
+        self.browser_var.set(name_map.get(cur_b, self.browsers[0][1]))
+        self.browser_box.pack(side="left")
+        self.browser_box.bind("<<ComboboxSelected>>", self.on_browser_change)
+
         self.b_github = ttk.Button(bar_op, text="GitHub 项目页", width=14, command=self.open_github)
         self.b_github.pack(side="right")
 
-        self.all_buttons = [self.b_login, self.b_logout, self.b_relogin,
+        self.all_buttons = [self.b_login, self.b_logout,
                             self.b_account, self.b_clear, self.b_auto, self.b_logs]
 
         ttk.Label(root, text="运行日志：", padding=(14, 6, 0, 0)).pack(anchor="w")
@@ -164,6 +173,12 @@ class App:
             common.save_service(val)
             self.log_line("运营商已设为「%s」，下次登录自动选择" % val)
 
+    def on_browser_change(self, _event=None):
+        name = self.browser_var.get().strip()
+        key = next((k for k, n in self.browsers if n == name), "edge")
+        common.save_browser(key)
+        self.log_line("自动化浏览器已切换为 %s" % name)
+
     def ensure_operator(self):
         """登录类操作前确保已选运营商，避免 GUI 模式下无法交互选择"""
         if self.op_var.get().strip():
@@ -193,6 +208,7 @@ class App:
         for b in self.all_buttons:
             b.config(state="disabled")
         self.op_box.config(state="disabled")
+        self.browser_box.config(state="disabled")
         self.status.config(text="状态：%s..." % title, foreground="#b26a00")
 
         def worker():
@@ -222,6 +238,7 @@ class App:
                     for b in self.all_buttons:
                         b.config(state="normal")
                     self.op_box.config(state="readonly")
+                    self.browser_box.config(state="readonly")
                     self.b_auto.config(text=self.autostart_label())
                     ok = code in ("0", "None", "")
                     if BOOT and not ok and self.boot_retries > 0:

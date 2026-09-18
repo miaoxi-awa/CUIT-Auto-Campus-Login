@@ -99,7 +99,7 @@ def main():
 
     driver = None
     try:
-        driver = make_driver(headless=False)  # 侦查一律有头，方便肉眼确认
+        driver = make_driver(headless=False, browser=load_config().get("browser", "edge"))  # 侦查一律有头，方便肉眼确认
         log("打开浏览器...")
         portal = find_portal(driver, cfg["url"])
 

@@ -298,15 +298,8 @@ def do_logout(driver, cfg):
     dump_page(driver, "before_confirm")
     confirm_logout_dialog(driver)
 
-    # 验证真的下线了：确认弹窗没点中的话，网络其实还在线
-    time.sleep(3)
-    if already_online(driver):
-        log("点击下线后外网探测仍在线 —— 确认弹窗可能没点中", "ERROR")
-        shot(driver, "still_online")
-        dump_page(driver, "still_online")
-        write_result(False, "点击下线后网络仍在线，确认弹窗可能未生效（详见截图）")
-        return False
-    log("外网探测确认已下线")
+    # 用户要求：下线后不再请求外网验证，直接认为成功并结束
+    log("下线操作已完成")
     return True
 
 
@@ -818,7 +811,7 @@ def main():
     if not cfg["url"]:
         # 没填认证页地址，先探测一次并写回
         from inspect_page import find_portal
-        driver = make_driver(headless=not args.visible)
+        driver = make_driver(headless=not args.visible, browser=cfg.get("browser", "edge"))
         try:
             cfg["url"] = find_portal(driver, "")
         finally:
@@ -831,7 +824,7 @@ def main():
     if args.logout_only:
         driver = None
         try:
-            driver = make_driver(headless=headless)
+            driver = make_driver(headless=headless, browser=cfg.get("browser", "edge"))
             start_watchdog(driver)
             log("=" * 60)
             log("仅下线模式启动（自助服务中心）")
@@ -878,7 +871,7 @@ def main():
     log("启动登录流程 (boot=%s, headless=%s)" % (args.boot, headless))
     driver = None
     try:
-        driver = make_driver(headless=headless)
+        driver = make_driver(headless=headless, browser=cfg.get("browser", "edge"))
         start_watchdog(driver)
         if args.offline:
             # 断线重连：先下线，等 10 秒，再走完整登录流程
